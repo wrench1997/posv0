@@ -363,7 +363,7 @@ def run_demo():
     
     # 等待一段时间，让区块生成
     print("等待区块生成...")
-    time.sleep(10)
+    time.sleep(30)
     
     # 显示节点信息
     for node in nodes:
@@ -372,7 +372,33 @@ def run_demo():
         print(f"质押金额: {node.get_staked_amount()}")
         print(f"区块链信息: {node.get_blockchain_info()}")
         print(f"验证者信息: {node.get_validator_info()}")
+
+
+
+    for _ in range(3):
+        payer_idx = random.randint(0, 2)
+        payee_idx = random.randint(0, 2)
+        while payee_idx == payer_idx:
+            payee_idx = random.randint(0, 2)
+        
+        amount = random.uniform(1, 3)
+        description = f"Payment for service #{uuid.uuid4().hex[:8]}"
+        
+        bill = nodes[payer_idx].create_bill(nodes[payee_idx].node_id, amount, description)
+        nodes[payer_idx].pay_bill(bill)
+
+    # 等待一段时间，让区块生成
+    print("等待区块生成...")
+    time.sleep(30)
     
+    # 显示节点信息
+    for node in nodes:
+        print(f"\n节点 {node.node_id} 信息:")
+        print(f"余额: {node.get_balance()}")
+        print(f"质押金额: {node.get_staked_amount()}")
+        print(f"区块链信息: {node.get_blockchain_info()}")
+        print(f"验证者信息: {node.get_validator_info()}")        
+
     # 停止节点
     for node in nodes:
         node.stop()

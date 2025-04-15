@@ -61,7 +61,7 @@ class POSConsensus:
         self.stakes: Dict[str, StakeInfo] = {}  # 地址 -> 质押信息
         self.validators: List[str] = []  # 验证者地址列表
         self.last_block_time = time.time()
-        self.block_time = 10  # 区块生成时间间隔（秒）
+        self.block_time = 30  # 区块生成时间间隔（秒）
     
     def add_stake(self, address: str, amount: float) -> bool:
         """
@@ -151,19 +151,8 @@ class POSConsensus:
         seed_data = f"{latest_block.hash}_{time_window}_{len(self.blockchain.pending_transactions)}"
         seed = int(hashlib.sha256(seed_data.encode()).hexdigest(), 16)
         random.seed(seed)
-        # # 使用区块链当前状态和时间戳作为随机种子，确保所有节点选择相同的验证者
-        # latest_block = self.blockchain.get_latest_block()
-        # # 使用更大的时间窗口，如30秒
-        # time_window = int(current_time / 30) * 30
-        # # 加入更多信息作为随机种子
-        # seed_data = f"{latest_block.hash}_{time_window}_{len(self.blockchain.pending_transactions)}"
-        # seed = int(hashlib.sha256(seed_data.encode()).hexdigest(), 16)
-        # random.seed(seed)
-        # 将时间戳取整到最近的区块时间间隔，确保所有节点在同一时间窗口内选择相同的验证者
-        time_window = int(current_time / self.block_time) * self.block_time
-        seed = int(hashlib.sha256(f"{latest_block.hash}_{time_window}".encode()).hexdigest(), 16)
-        random.seed(seed)
         
+
         # 计算总权重
         total_weight = sum(self.stakes[v].get_weight() for v in self.validators)
         
