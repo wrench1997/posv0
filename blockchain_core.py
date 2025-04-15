@@ -245,8 +245,9 @@ class Blockchain:
             bool: 区块是否有效
         """
         # 检查区块索引
-        if block.index != len(self.chain):
-            print(f"区块索引无效: {block.index} != {len(self.chain)}")
+        expected_index = len(self.chain)
+        if block.index != expected_index:
+            print(f"区块索引无效: {block.index} != {expected_index}")
             return False
         
         # 检查前一个区块的哈希值
@@ -292,12 +293,17 @@ class Blockchain:
         return True
     
     def confirm_block(self, block_hash: str) -> None:
-        """
-        确认区块
+        """确认区块"""
+        # 检查区块是否存在于链中
+        block_exists = False
+        for block in self.chain:
+            if block.hash == block_hash:
+                block_exists = True
+                break
         
-        Args:
-            block_hash: 区块哈希
-        """
+        if not block_exists:
+            return
+        
         if block_hash not in self.block_confirmations:
             self.block_confirmations[block_hash] = 0
         

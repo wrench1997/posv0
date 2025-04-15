@@ -143,16 +143,16 @@ class POSConsensus:
         for stake in self.stakes.values():
             stake.update_age(current_time)
 
-        # 使用更精确的时间窗口
-        time_window = int(current_time / self.block_time) * self.block_time
-        
-        # 使用区块链当前状态、时间窗口和交易池大小作为随机种子
+        # 使用更精确的时间窗口和区块高度
         latest_block = self.blockchain.get_latest_block()
-        seed_data = f"{latest_block.hash}_{time_window}_{len(self.blockchain.pending_transactions)}"
+        block_height = latest_block.index
+        time_window = int(current_time / self.block_time)
+        
+        # 使用区块链当前状态、时间窗口、区块高度和交易池大小作为随机种子
+        seed_data = f"{latest_block.hash}_{time_window}_{block_height}_{len(self.blockchain.pending_transactions)}"
         seed = int(hashlib.sha256(seed_data.encode()).hexdigest(), 16)
         random.seed(seed)
         
-
         # 计算总权重
         total_weight = sum(self.stakes[v].get_weight() for v in self.validators)
         
@@ -253,3 +253,10 @@ class POSConsensus:
             })
         
         return validator_info
+
+
+
+    def reset_block_generation(self) -> None:
+        """重置区块生成计时器"""
+        self.last_block_time = time.time()
+        print("重置区块生成计时器")

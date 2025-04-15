@@ -371,13 +371,10 @@ class P2PNode:
             else:
                 print(f"从节点 {message.sender} 接收到的区块链无效")
     
+# 在p2p_network.py中修改handle_new_block方法
+
     def handle_new_block(self, message: Message) -> None:
-        """
-        处理新区块消息
-        
-        Args:
-            message: 新区块消息
-        """
+        """处理新区块消息"""
         block_dict = message.data['block']
         new_block = Block.from_dict(block_dict)
         
@@ -386,29 +383,22 @@ class P2PNode:
             print(f"区块 {new_block.index} 已存在，忽略")
             return None
         
-        # 检查区块索引是否连续
+        # 检查区块索引
         expected_index = len(self.blockchain.chain)
-        if new_block.index > expected_index:
-            print(f"收到未来区块 {new_block.index}，当前链长度: {expected_index}")
-            # 请求缺失的区块
-            self.request_missing_blocks(message.sender, expected_index, new_block.index - 1)
-            return None
-        
-        # 检查区块索引是否小于当前链长度（可能是分叉）
-        if new_block.index < expected_index:
-            print(f"收到过去区块 {new_block.index}，当前链长度: {expected_index}")
-            # 处理可能的分叉
-            if self.handle_fork(new_block):
-                print(f"接受分叉区块 {new_block.index}")
-            else:
-                print(f"拒绝分叉区块 {new_block.index}")
+        if new_block.index != expected_index:
+            print(f"区块索引不匹配，期望 {expected_index}，收到 {new_block.index}")
+            
+            # 如果收到的区块索引更大，说明本地链落后，请求同步
+            if new_block.index > expected_index:
+                print(f"本地区块链落后，请求同步")
+                self.synchronize_blockchain()
             return None
         
         # 验证并添加新区块
         if self.blockchain.is_valid_block(new_block):
             if self.blockchain.add_block(new_block):
                 print(f"从节点 {message.sender} 添加新区块: {new_block.index}")
-
+                
                 # 广播确认消息
                 confirmation_message = Message(
                     "BLOCK_CONFIRMATION",
@@ -416,12 +406,11 @@ class P2PNode:
                     self.node_id
                 )
                 self.broadcast_message(confirmation_message)
-            
-
-                # 广播给其他节点（除了发送者）
-                for peer_id in self.peers:
-                    if peer_id != message.sender:
-                        self.send_message_to_peer(peer_id, message)
+                
+                # 停止当前区块的生成（如果正在生成）
+                # 这可以防止多个节点同时生成相同索引的区块
+                if hasattr(self, 'pos_consensus'):
+                    self.pos_consensus.reset_block_generation()
             else:
                 print(f"从节点 {message.sender} 接收到的区块无效")
         else:
@@ -631,43 +620,56 @@ class P2PNode:
 
     def synchronize_blockchain(self) -> bool:
         """与网络同步区块链"""
-        if not self.peers or self.syncing:
-            # print("没有对等节点可同步或正在同步中\n")
+        if not self.peers:
+            print("没有对等节点可同步")
             return False
         
-        self.syncing = True
+        # 设置同步标志，防止重复同步
+        if hasattr(self, '_syncing') and self._syncing:
+            return False
+        
+        self._syncing = True
         
         try:
-            # 随机选择一个对等节点
-            peer_id = random.choice(list(self.peers.keys()))
+            # 随机选择多个对等节点（最多3个）进行同步
+            peer_count = min(3, len(self.peers))
+            selected_peers = random.sample(list(self.peers.keys()), peer_count)
             
-            # 请求区块链
-            request_message = Message(
-                Message.TYPE_BLOCKCHAIN_REQUEST,
-                {},
-                self.node_id
-            )
+            best_chain = None
+            max_length = len(self.blockchain.chain)
             
-            response = self.send_message_to_peer(peer_id, request_message)
+            # 从多个节点获取区块链，选择最长的有效链
+            for peer_id in selected_peers:
+                request_message = Message(
+                    Message.TYPE_BLOCKCHAIN_REQUEST,
+                    {},
+                    self.node_id
+                )
+                
+                response = self.send_message_to_peer(peer_id, request_message)
+                
+                if not response or response.type != Message.TYPE_BLOCKCHAIN_RESPONSE:
+                    continue
+                
+                received_blockchain = Blockchain.from_dict(response.data['blockchain'])
+                
+                # 验证接收到的区块链
+                if not received_blockchain.is_chain_valid():
+                    print(f"从节点 {peer_id} 接收到的区块链无效")
+                    continue
+                
+                # 如果接收到的区块链比当前最长链更长，更新最长链
+                if len(received_blockchain.chain) > max_length:
+                    max_length = len(received_blockchain.chain)
+                    best_chain = received_blockchain
             
-            if not response or response.type != Message.TYPE_BLOCKCHAIN_RESPONSE:
-                print(f"从节点 {peer_id} 同步区块链失败")
-                return False
-            
-            received_blockchain = Blockchain.from_dict(response.data['blockchain'])
-            
-            # 验证接收到的区块链
-            if not received_blockchain.is_chain_valid():
-                print(f"从节点 {peer_id} 接收到的区块链无效")
-                return False
-            
-            # 如果接收到的区块链比当前区块链长，则替换当前区块链
-            if len(received_blockchain.chain) > len(self.blockchain.chain):
+            # 如果找到更长的有效链，替换当前链
+            if best_chain and len(best_chain.chain) > len(self.blockchain.chain):
                 # 保存当前待处理交易
                 pending_transactions = self.blockchain.pending_transactions.copy()
                 
                 # 替换区块链
-                self.blockchain = received_blockchain
+                self.blockchain = best_chain
                 
                 # 将原有的待处理交易添加回来（排除已经在新链中的交易）
                 for tx in pending_transactions:
@@ -675,13 +677,13 @@ class P2PNode:
                             if any(t.transaction_id == tx.transaction_id for t in block.transactions)):
                         self.blockchain.pending_transactions.append(tx)
                 
-                print(f"从节点 {peer_id} 同步区块链成功，当前长度: {len(self.blockchain.chain)}")
+                print(f"同步区块链成功，当前长度: {len(self.blockchain.chain)}")
                 return True
             
             print(f"当前区块链已是最新，长度: {len(self.blockchain.chain)}")
             return True
         finally:
-            self.syncing = False
+            self._syncing = False
 
     def broadcast_new_block(self, block: Block) -> None:
         """
