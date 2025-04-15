@@ -335,11 +335,12 @@ def run_demo():
     
     # 质押代币
     for node in nodes:
+        time.sleep(1)
         stake_amount = random.uniform(10, 50)
         node.stake(stake_amount)
     
     # 创建一些交易
-    for _ in range(5):
+    for _ in range(1):
         sender_idx = random.randint(0, 2)
         recipient_idx = random.randint(0, 2)
         while recipient_idx == sender_idx:
@@ -349,7 +350,7 @@ def run_demo():
         nodes[sender_idx].create_transaction(nodes[recipient_idx].node_id, amount)
     
     # 创建并支付账单
-    for _ in range(3):
+    for _ in range(1):
         payer_idx = random.randint(0, 2)
         payee_idx = random.randint(0, 2)
         while payee_idx == payer_idx:
@@ -375,7 +376,7 @@ def run_demo():
 
 
 
-    for _ in range(3):
+    for _ in range(1):
         payer_idx = random.randint(0, 2)
         payee_idx = random.randint(0, 2)
         while payee_idx == payer_idx:
