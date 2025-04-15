@@ -386,7 +386,7 @@ class P2PNode:
         # 检查区块索引
         expected_index = len(self.blockchain.chain)
         if new_block.index != expected_index:
-            print(f"区块索引不匹配，期望 {expected_index}，收到 {new_block.index}")
+            # print(f"区块索引不匹配，期望 {expected_index}，收到 {new_block.index}")
             
             # 如果收到的区块索引更大，说明本地链落后，请求同步
             if new_block.index > expected_index:
