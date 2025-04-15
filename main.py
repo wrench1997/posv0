@@ -245,7 +245,7 @@ class Node:
                 validator = self.pos_consensus.select_validator()
                 
                 if validator == self.node_id:
-                    print(f"节点 {self.node_id} 被选为验证者，生成新区块")
+                    print(f"节点 {self.node_id} 被选为验证者，生成新区块\n")
                     
                     # 生成新区块
                     new_block = self.pos_consensus.forge_block(self.node_id)

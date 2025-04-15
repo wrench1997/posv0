@@ -169,7 +169,11 @@ class Blockchain:
         
     def create_genesis_block(self) -> None:
         """创建创世区块"""
-        genesis_block = Block(0, time.time(), [], "0", "genesis")
+        # 使用固定的时间戳而不是 time.time()
+        fixed_timestamp = 1609459200.0  # 2021-01-01 00:00:00 UTC
+        genesis_block = Block(0, fixed_timestamp, [], "0", "genesis")
+        # 确保 nonce 也是固定的
+        genesis_block.nonce = 0
         genesis_block.hash = genesis_block.calculate_hash()
         self.chain.append(genesis_block)
         

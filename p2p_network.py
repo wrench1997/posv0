@@ -412,9 +412,9 @@ class P2PNode:
                 if hasattr(self, 'pos_consensus'):
                     self.pos_consensus.reset_block_generation()
             else:
-                print(f"从节点 {message.sender} 接收到的区块无效")
+                print(f"从节点 {message.sender} 接收到的区块无效\n")
         else:
-            print(f"从节点 {message.sender} 接收到的区块无效")
+            print(f"从节点 {message.sender} 接收到的区块无效\n")
 
     def request_missing_blocks(self, peer_id: str, start_index: int, end_index: int) -> None:
         """
