@@ -142,9 +142,23 @@ class POSConsensus:
         # 更新所有质押的年龄
         for stake in self.stakes.values():
             stake.update_age(current_time)
+
+        # 使用更精确的时间窗口
+        time_window = int(current_time / self.block_time) * self.block_time
         
-        # 使用区块链当前状态和时间戳作为随机种子，确保所有节点选择相同的验证者
+        # 使用区块链当前状态、时间窗口和交易池大小作为随机种子
         latest_block = self.blockchain.get_latest_block()
+        seed_data = f"{latest_block.hash}_{time_window}_{len(self.blockchain.pending_transactions)}"
+        seed = int(hashlib.sha256(seed_data.encode()).hexdigest(), 16)
+        random.seed(seed)
+        # # 使用区块链当前状态和时间戳作为随机种子，确保所有节点选择相同的验证者
+        # latest_block = self.blockchain.get_latest_block()
+        # # 使用更大的时间窗口，如30秒
+        # time_window = int(current_time / 30) * 30
+        # # 加入更多信息作为随机种子
+        # seed_data = f"{latest_block.hash}_{time_window}_{len(self.blockchain.pending_transactions)}"
+        # seed = int(hashlib.sha256(seed_data.encode()).hexdigest(), 16)
+        # random.seed(seed)
         # 将时间戳取整到最近的区块时间间隔，确保所有节点在同一时间窗口内选择相同的验证者
         time_window = int(current_time / self.block_time) * self.block_time
         seed = int(hashlib.sha256(f"{latest_block.hash}_{time_window}".encode()).hexdigest(), 16)

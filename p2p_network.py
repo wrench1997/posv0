@@ -408,6 +408,16 @@ class P2PNode:
         if self.blockchain.is_valid_block(new_block):
             if self.blockchain.add_block(new_block):
                 print(f"从节点 {message.sender} 添加新区块: {new_block.index}")
+
+                # 广播确认消息
+                confirmation_message = Message(
+                    "BLOCK_CONFIRMATION",
+                    {'block_hash': new_block.hash},
+                    self.node_id
+                )
+                self.broadcast_message(confirmation_message)
+            
+
                 # 广播给其他节点（除了发送者）
                 for peer_id in self.peers:
                     if peer_id != message.sender:
@@ -533,6 +543,30 @@ class P2PNode:
         Returns:
             bool: 是否接受分叉
         """
+        # 对于区块1的特殊处理（所有区块1都基于创世区块）
+        if new_block.index == 1 and len(self.blockchain.chain) >= 2:
+            # 验证新区块是否基于创世区块
+            if new_block.previous_hash == self.blockchain.chain[0].hash:
+                # 比较当前区块1和新区块1的哈希值，选择较小的哈希值作为胜出者
+                current_block1 = self.blockchain.chain[1]
+                if new_block.hash < current_block1.hash:
+                    # 创建分叉链
+                    fork_chain = self.blockchain.chain[:1].copy()  # 只保留创世区块
+                    fork_chain.append(new_block)
+                    
+                    # 将当前链中不在分叉链中的交易添加回待处理交易池
+                    for block in self.blockchain.chain[1:]:
+                        for tx in block.transactions:
+                            if not any(t.transaction_id == tx.transaction_id for t in self.blockchain.pending_transactions):
+                                self.blockchain.pending_transactions.append(tx)
+                    
+                    # 替换当前链
+                    self.blockchain.chain = fork_chain
+                    print(f"区块链分叉，切换到新链（哈希值较小），长度: {len(self.blockchain.chain)}")
+                    return True
+                
+                print(f"区块链分叉，保留当前链（哈希值较小），长度: {len(self.blockchain.chain)}")
+                return False
         # 找到分叉点
         fork_point = -1
         for i in range(len(self.blockchain.chain)):
@@ -598,7 +632,7 @@ class P2PNode:
     def synchronize_blockchain(self) -> bool:
         """与网络同步区块链"""
         if not self.peers or self.syncing:
-            print("没有对等节点可同步或正在同步中")
+            print("没有对等节点可同步或正在同步中\n")
             return False
         
         self.syncing = True
