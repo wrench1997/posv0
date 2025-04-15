@@ -81,6 +81,10 @@ class P2PNode:
         self.server_socket = None
         self.running = False
         self.syncing = True
+        self.time_offset = 0  # 时间偏移量
+        self.time_samples = []  # 时间样本
+        self.max_time_samples = 10  # 最大样本数
+    
         self.message_handlers = {
             Message.TYPE_HANDSHAKE: self.handle_handshake,
             Message.TYPE_DISCOVER: self.handle_discover,
@@ -708,3 +712,136 @@ class P2PNode:
                     
                     # 连接到新发现的对等节点
                     self.connect_to_peer(host, port)
+    
+    def broadcast_block_confirmation(self, block_hash: str) -> None:
+        """
+        广播区块确认
+        
+        Args:
+            block_hash: 区块哈希
+        """
+        message = Message(
+            "BLOCK_CONFIRMATION",
+            {
+                'block_hash': block_hash
+            },
+            self.node_id
+        )
+        
+        self.broadcast_message(message)
+    
+    def handle_block_confirmation(self, message: Message) -> None:
+        """
+        处理区块确认消息
+        
+        Args:
+            message: 区块确认消息
+        """
+        block_hash = message.data['block_hash']
+        
+        # 确认区块
+        self.blockchain.confirm_block(block_hash)
+        
+        # 如果区块已在本地链中，转发确认
+        if any(block.hash == block_hash for block in self.blockchain.chain):
+            # 转发给其他节点（除了发送者）
+            for peer_id in self.peers:
+                if peer_id != message.sender:
+                    self.send_message_to_peer(peer_id, message)
+    
+    def sync_time(self) -> None:
+        """同步网络时间"""
+        if not self.peers:
+            return
+        
+        # 请求时间样本
+        for peer_id in self.peers:
+            self.request_time_sample(peer_id)
+        
+        # 计算时间偏移量
+        if self.time_samples:
+            # 移除异常值
+            sorted_samples = sorted(self.time_samples)
+            if len(sorted_samples) > 4:
+                # 移除最高和最低的25%
+                quarter = len(sorted_samples) // 4
+                valid_samples = sorted_samples[quarter:-quarter]
+            else:
+                valid_samples = sorted_samples
+            
+            # 计算平均偏移量
+            if valid_samples:
+                avg_offset = sum(valid_samples) / len(valid_samples)
+                self.time_offset = avg_offset
+                print(f"时间同步完成，偏移量: {self.time_offset:.2f}秒")
+        
+        # 清空样本
+        self.time_samples = []
+        
+        # 设置下一次同步
+        threading.Timer(300, self.sync_time).start()
+    
+    def request_time_sample(self, peer_id: str) -> None:
+        """
+        请求时间样本
+        
+        Args:
+            peer_id: 对等节点ID
+        """
+        local_time = time.time()
+        
+        request_message = Message(
+            "TIME_SYNC_REQUEST",
+            {
+                'local_time': local_time
+            },
+            self.node_id
+        )
+        
+        response = self.send_message_to_peer(peer_id, request_message)
+        
+        if response and response.type == "TIME_SYNC_RESPONSE":
+            remote_time = response.data['remote_time']
+            response_time = time.time()
+            
+            # 计算往返时间
+            rtt = response_time - local_time
+            
+            # 计算偏移量（考虑往返时间的一半作为网络延迟）
+            offset = remote_time - (local_time + rtt / 2)
+            
+            # 添加样本
+            self.time_samples.append(offset)
+            
+            # 限制样本数量
+            if len(self.time_samples) > self.max_time_samples:
+                self.time_samples.pop(0)
+    
+    def handle_time_sync_request(self, message: Message) -> str:
+        """
+        处理时间同步请求
+        
+        Args:
+            message: 时间同步请求消息
+            
+        Returns:
+            str: 响应消息的JSON字符串
+        """
+        response_message = Message(
+            "TIME_SYNC_RESPONSE",
+            {
+                'remote_time': time.time()
+            },
+            self.node_id
+        )
+        
+        return response_message.to_json()
+    
+    def get_network_time(self) -> float:
+        """
+        获取网络同步时间
+        
+        Returns:
+            float: 网络同步时间
+        """
+        return time.time() + self.time_offset

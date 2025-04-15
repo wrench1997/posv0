@@ -1,3 +1,4 @@
+
 # blockchain_core.py
 
 import hashlib
@@ -159,6 +160,9 @@ class Blockchain:
         self.chain = []
         self.pending_transactions = []
         self.nodes = set()  # 存储网络中的节点
+        self.block_confirmations = {}  # 存储区块确认数 {block_hash: confirmation_count}
+        self.finalized_blocks = set()  # 存储已最终确认的区块哈希
+        self.confirmation_threshold = 6  # 区块最终确认所需的确认数
         
         # 创建创世区块
         self.create_genesis_block()
@@ -286,6 +290,36 @@ class Blockchain:
                 return False
         
         return True
+    
+    def confirm_block(self, block_hash: str) -> None:
+        """
+        确认区块
+        
+        Args:
+            block_hash: 区块哈希
+        """
+        if block_hash not in self.block_confirmations:
+            self.block_confirmations[block_hash] = 0
+        
+        self.block_confirmations[block_hash] += 1
+        
+        # 检查是否达到确认阈值
+        if (self.block_confirmations[block_hash] >= self.confirmation_threshold and 
+                block_hash not in self.finalized_blocks):
+            self.finalized_blocks.add(block_hash)
+            print(f"区块 {block_hash[:8]} 已最终确认")
+    
+    def is_block_finalized(self, block_hash: str) -> bool:
+        """
+        检查区块是否已最终确认
+        
+        Args:
+            block_hash: 区块哈希
+            
+        Returns:
+            bool: 区块是否已最终确认
+        """
+        return block_hash in self.finalized_blocks
     
     def to_dict(self) -> Dict[str, Any]:
         """将区块链转换为字典格式"""

@@ -143,9 +143,11 @@ class POSConsensus:
         for stake in self.stakes.values():
             stake.update_age(current_time)
         
-        # 使用区块链当前状态作为随机种子，确保所有节点选择相同的验证者
+        # 使用区块链当前状态和时间戳作为随机种子，确保所有节点选择相同的验证者
         latest_block = self.blockchain.get_latest_block()
-        seed = int(latest_block.hash, 16) % 10000000
+        # 将时间戳取整到最近的区块时间间隔，确保所有节点在同一时间窗口内选择相同的验证者
+        time_window = int(current_time / self.block_time) * self.block_time
+        seed = int(hashlib.sha256(f"{latest_block.hash}_{time_window}".encode()).hexdigest(), 16)
         random.seed(seed)
         
         # 计算总权重
@@ -153,7 +155,8 @@ class POSConsensus:
         
         if total_weight == 0:
             # 如果总权重为0，使用确定性随机选择
-            return self.validators[seed % len(self.validators)]
+            validator_index = seed % len(self.validators)
+            return self.validators[validator_index]
         
         # 根据权重选择验证者
         target = random.uniform(0, total_weight)
