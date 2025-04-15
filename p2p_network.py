@@ -632,7 +632,7 @@ class P2PNode:
     def synchronize_blockchain(self) -> bool:
         """与网络同步区块链"""
         if not self.peers or self.syncing:
-            print("没有对等节点可同步或正在同步中\n")
+            # print("没有对等节点可同步或正在同步中\n")
             return False
         
         self.syncing = True
