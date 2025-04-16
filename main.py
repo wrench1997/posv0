@@ -60,13 +60,15 @@ class Node:
         # 尝试加载已有区块链数据
         loaded_blockchain = self.blockchain_storage.load_blockchain(node_id)
         if loaded_blockchain:
-            # 验证加载的区块链
-            if loaded_blockchain.is_chain_valid():
-                self.blockchain = loaded_blockchain
-                print(f"已加载有效的区块链数据，链长度: {len(self.blockchain.chain)}")
+            # Instead of replacing the entire blockchain object, just load the chain
+            if self.blockchain.load_saved_chain(loaded_blockchain.chain):
+                print(f"Successfully loaded valid blockchain data, chain length: {len(self.blockchain.chain)}")
+                
+                # Also load pending transactions
+                self.blockchain.pending_transactions = loaded_blockchain.pending_transactions
             else:
-                print("加载的区块链数据无效，使用新的区块链")
-                # 可以选择尝试修复或使用新的区块链
+                print("Loaded blockchain data is invalid, using new blockchain")
+
     
     # 在 main.py 中的 Node 类的 start 方法中添加
 
