@@ -207,6 +207,16 @@ class POSConsensus:
         # 创建新区块
         new_block = self.blockchain.create_block(validator_address)
         
+        # 检查区块索引是否正确
+        expected_index = len(self.blockchain.chain)
+        if new_block.index != expected_index:
+            print(f"区块索引不匹配，期望 {expected_index}，实际 {new_block.index}，重新设置索引")
+            # 修正区块索引和前一个区块哈希
+            new_block.index = expected_index
+            new_block.previous_hash = self.blockchain.get_latest_block().hash
+            # 重新计算区块哈希
+            new_block.hash = new_block.calculate_hash()
+        
         # 更新最后区块时间
         self.last_block_time = time.time()
         

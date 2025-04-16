@@ -1,5 +1,4 @@
 
-
 import time
 import threading
 import random
@@ -324,6 +323,13 @@ class Node:
                     new_block = self.pos_consensus.forge_block(self.node_id)
                     
                     if new_block:
+                        # 确保区块索引正确
+                        expected_index = len(self.blockchain.chain)
+                        if new_block.index != expected_index:
+                            print(f"区块索引不匹配，期望 {expected_index}，实际 {new_block.index}，重新设置索引")
+                            new_block.index = expected_index
+                            new_block.hash = new_block.calculate_hash()
+                        
                         # 添加奖励交易
                         self.reward_distributor.add_reward_transaction(new_block)
                         
