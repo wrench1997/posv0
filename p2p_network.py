@@ -63,7 +63,7 @@ class Message:
 class P2PNode:
     """P2P网络节点类"""
     
-    def __init__(self, host: str, port: int, node_id: str, blockchain: Blockchain):
+    def __init__(self, host: str, port: int, node_id: str, blockchain: Blockchain,node=None):
         """
         初始化P2P节点
         
@@ -76,6 +76,7 @@ class P2PNode:
         self.host = host
         self.port = port
         self.node_id = node_id
+        self.node = node  # 添加对节点的引用
         self.blockchain = blockchain
         self.peers = {}  # 格式: {node_id: (host, port)}
         self.server_socket = None
@@ -371,7 +372,6 @@ class P2PNode:
             else:
                 print(f"从节点 {message.sender} 接收到的区块链无效")
     
-# 在p2p_network.py中修改handle_new_block方法
 
     def handle_new_block(self, message: Message) -> None:
         """处理新区块消息"""
@@ -386,13 +386,17 @@ class P2PNode:
         # 检查区块索引
         expected_index = len(self.blockchain.chain)
         if new_block.index != expected_index:
-            # print(f"区块索引不匹配，期望 {expected_index}，收到 {new_block.index}")
-            
             # 如果收到的区块索引更大，说明本地链落后，请求同步
             if new_block.index > expected_index:
                 print(f"本地区块链落后，请求同步")
                 self.synchronize_blockchain()
             return None
+        
+        # 验证区块工作量
+        if hasattr(self, 'node') and self.node:
+            if not self.node.verify_work(new_block):
+                print(f"区块 {new_block.index} 工作量验证失败，拒绝接受")
+                return None
         
         # 验证并添加新区块
         if self.blockchain.is_valid_block(new_block):
@@ -408,7 +412,6 @@ class P2PNode:
                 self.broadcast_message(confirmation_message)
                 
                 # 停止当前区块的生成（如果正在生成）
-                # 这可以防止多个节点同时生成相同索引的区块
                 if hasattr(self, 'pos_consensus'):
                     self.pos_consensus.reset_block_generation()
             else:
@@ -881,3 +884,23 @@ class P2PNode:
             float: 网络同步时间
         """
         return time.time() + self.time_offset
+    
+    # 在 P2PNode 类中添加自动发现节点的方法
+    def auto_discover_nodes(self) -> None:
+        """自动发现网络中的节点"""
+        if not self.peers:
+            print("没有已知节点可用于发现")
+            return
+        
+        print("开始自动发现网络节点...")
+        
+        # 从已知节点中随机选择一个作为种子节点
+        seed_peer_id = random.choice(list(self.peers.keys()))
+        
+        # 使用种子节点发现其他节点
+        self.discover_peers(seed_peer_id)
+        
+        # 打印发现的节点
+        print(f"已发现 {len(self.peers)} 个节点:")
+        for peer_id, (host, port) in self.peers.items():
+            print(f"  - {peer_id}: {host}:{port}")

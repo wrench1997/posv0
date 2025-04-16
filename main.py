@@ -1,3 +1,4 @@
+
 # demo.py
 
 import time
@@ -6,7 +7,7 @@ import random
 import uuid
 from typing import List, Dict, Any
 
-from blockchain_core import Blockchain, Transaction
+from blockchain_core import Blockchain, Transaction,Block
 from p2p_network import P2PNode
 
 from pos_consensus import POSConsensus
@@ -35,7 +36,7 @@ class Node:
         self.blockchain = Blockchain()
         
         # 初始化P2P网络
-        self.p2p_node = P2PNode(host, port, node_id, self.blockchain)
+        self.p2p_node = P2PNode(host, port, node_id, self.blockchain, self)
         
         # 初始化POS共识机制
         self.pos_consensus = POSConsensus(self.blockchain)
@@ -64,7 +65,50 @@ class Node:
         threading.Thread(target=self.block_generation_loop, daemon=True).start()
         
         print(f"节点 {self.node_id} 启动成功")
-    
+
+    def auto_discover_nodes(self) -> None:
+        """自动发现网络中的节点"""
+        if not self.p2p_node or not self.p2p_node.peers:
+            print("节点未连接到网络，无法发现其他节点")
+            return
+        
+        self.p2p_node.auto_discover_nodes()
+
+    # 在 Node 类中添加验证工作量的方法
+    def verify_work(self, block: Block) -> bool:
+        """
+        验证区块的工作量
+        
+        Args:
+            block: 要验证的区块
+            
+        Returns:
+            bool: 工作量是否有效
+        """
+        # 在POS共识中，验证工作量主要是验证验证者是否有足够的权益
+        if block.validator not in self.pos_consensus.validators:
+            print(f"区块验证者 {block.validator} 不是有效的验证者")
+            return False
+        
+        # 获取验证者的质押信息
+        validator_stake = self.pos_consensus.stakes.get(block.validator)
+        if not validator_stake:
+            print(f"找不到验证者 {block.validator} 的质押信息")
+            return False
+        
+        # 验证质押金额是否满足最低要求
+        if validator_stake.amount < self.pos_consensus.min_stake_amount:
+            print(f"验证者 {block.validator} 的质押金额 {validator_stake.amount} 低于最低要求 {self.pos_consensus.min_stake_amount}")
+            return False
+        
+        # 验证区块哈希是否有效
+        if block.hash != block.calculate_hash():
+            print(f"区块哈希无效: {block.hash} != {block.calculate_hash()}")
+            return False
+        
+        print(f"区块 {block.index} 的工作量验证通过，验证者: {block.validator}, 质押金额: {validator_stake.amount}")
+        return True
+
     def stop(self) -> None:
         """停止节点"""
         self.running = False
@@ -329,10 +373,17 @@ def run_demo():
         node.start()
         print(f"节点 {node_id} 启动，地址: {host}:{port}")
     
-    # 连接节点
-    for i in range(1, 3):
-        nodes[i].connect_to_network("127.0.0.1", 5002)
-        print(f"节点 {nodes[i].node_id} 连接到节点 {nodes[0].node_id}")
+    # 连接第一个节点
+    nodes[1].connect_to_network("127.0.0.1", 5002)
+    print(f"节点 {nodes[1].node_id} 连接到节点 {nodes[0].node_id}")
+    
+    # 使用自动发现连接其他节点
+    print("使用自动发现连接其他节点...")
+    nodes[1].auto_discover_nodes()
+    
+    # 第三个节点也连接到网络
+    nodes[2].connect_to_network("127.0.0.1", 5003)  # 连接到第二个节点
+    nodes[2].auto_discover_nodes()  # 自动发现其他节点
     
     # 质押代币
     for node in nodes:
@@ -365,7 +416,15 @@ def run_demo():
     
     # 等待一段时间，让区块生成
     print("等待区块生成...")
-    time.sleep(30)
+    time.sleep(15)
+    
+    # 验证最新区块的工作量
+    for node in nodes:
+        latest_block = node.blockchain.get_latest_block()
+        if latest_block.index > 0:  # 跳过创世区块
+            print(f"\n节点 {node.node_id} 验证最新区块 {latest_block.index} 的工作量:")
+            is_valid = node.verify_work(latest_block)
+            print(f"工作量验证结果: {'有效' if is_valid else '无效'}")
     
     # 显示节点信息
     for node in nodes:
@@ -374,9 +433,10 @@ def run_demo():
         print(f"质押金额: {node.get_staked_amount()}")
         print(f"区块链信息: {node.get_blockchain_info()}")
         print(f"验证者信息: {node.get_validator_info()}")
+        print(f"已连接节点数: {len(node.p2p_node.peers)}")
+        print(f"已连接节点: {list(node.p2p_node.peers.keys())}")
 
-
-
+    # 再创建一些交易和账单
     for _ in range(1):
         payer_idx = random.randint(0, 2)
         payee_idx = random.randint(0, 2)
@@ -391,7 +451,15 @@ def run_demo():
 
     # 等待一段时间，让区块生成
     print("等待区块生成...")
-    time.sleep(30)
+    time.sleep(15)
+    
+    # 再次验证最新区块的工作量
+    for node in nodes:
+        latest_block = node.blockchain.get_latest_block()
+        if latest_block.index > 0:  # 跳过创世区块
+            print(f"\n节点 {node.node_id} 验证最新区块 {latest_block.index} 的工作量:")
+            is_valid = node.verify_work(latest_block)
+            print(f"工作量验证结果: {'有效' if is_valid else '无效'}")
     
     # 显示节点信息
     for node in nodes:
