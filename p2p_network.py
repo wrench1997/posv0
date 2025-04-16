@@ -904,3 +904,60 @@ class P2PNode:
         print(f"已发现 {len(self.peers)} 个节点:")
         for peer_id, (host, port) in self.peers.items():
             print(f"  - {peer_id}: {host}:{port}")
+
+
+
+    def broadcast_validator_info(self,stake_amount=None,pos_consensus=None):
+        """广播验证者信息"""
+        validator_info = {
+            'address': self.node_id,
+            'stake_amount': stake_amount,
+            'timestamp': pos_consensus.stakes[self.node_id].timestamp,
+            'age': pos_consensus.stakes[self.node_id].age
+        }
+        
+        message = Message(
+            "VALIDATOR_INFO",
+            {'validator': validator_info},
+            self.node_id
+        )
+        
+        self.broadcast_message(message)
+
+
+
+    def synchronize_validators(self):
+        """同步验证者信息"""
+        if not self.peers:
+            return
+        
+        # 随机选择一个对等节点
+        peer_id = random.choice(list(self.peers.keys()))
+        
+        # 创建请求消息
+        request_message = Message(
+            "VALIDATOR_INFO_REQUEST",
+            {},
+            self.node_id
+        )
+        
+        # 发送请求
+        response = self.send_message_to_peer(peer_id, request_message)
+        
+        if response and response.type == "VALIDATOR_INFO_RESPONSE":
+            validators_data = response.data['validators']
+            stakes_data = response.data['stakes']
+            
+            # 更新验证者列表和质押信息
+            for validator in validators_data:
+                if validator not in self.node.pos_consensus.validators:
+                    self.node.pos_consensus.validators.append(validator)
+            
+            for address, stake_data in stakes_data.items():
+                if address not in self.node.pos_consensus.stakes:
+                    self.node.pos_consensus.stakes[address] = StakeInfo(
+                        address,
+                        stake_data['amount'],
+                        stake_data['timestamp']
+                    )
+                    self.node.pos_consensus.stakes[address].age = stake_data['age']

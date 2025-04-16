@@ -76,19 +76,16 @@ class Node:
 
     # 在 Node 类中添加验证工作量的方法
     def verify_work(self, block: Block) -> bool:
-        """
-        验证区块的工作量
-        
-        Args:
-            block: 要验证的区块
-            
-        Returns:
-            bool: 工作量是否有效
-        """
-        # 在POS共识中，验证工作量主要是验证验证者是否有足够的权益
+        """验证区块的工作量"""
+        # 如果验证者不在本地验证者列表中，但区块来自网络，尝试从网络同步验证者信息
         if block.validator not in self.pos_consensus.validators:
-            print(f"区块验证者 {block.validator} 不是有效的验证者")
-            return False
+            # 尝试同步验证者信息
+            self.p2p_node.synchronize_validators()
+            
+            # 再次检查验证者
+            if block.validator not in self.pos_consensus.validators:
+                print(f"区块验证者 {block.validator} 不是有效的验证者")
+                return False
         
         # 获取验证者的质押信息
         validator_stake = self.pos_consensus.stakes.get(block.validator)
@@ -162,9 +159,13 @@ class Node:
             self.balance += amount
             self.staked_amount -= amount
             print(f"节点 {self.node_id} 质押失败")
-        
+
+        # 如果成功成为验证者，广播验证者信息
+        if success and self.node_id in self.pos_consensus.validators:
+            self.p2p_node.broadcast_validator_info(self.staked_amount,self.pos_consensus)
         return success
-    
+
+
     def unstake(self, amount: float) -> bool:
         """
         取消质押
@@ -451,7 +452,7 @@ def run_demo():
 
     # 等待一段时间，让区块生成
     print("等待区块生成...")
-    time.sleep(15)
+    time.sleep(30)
     
     # 再次验证最新区块的工作量
     for node in nodes:
