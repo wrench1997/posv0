@@ -8,6 +8,7 @@ from typing import List, Dict, Any
 
 from blockchain_core import Blockchain, Transaction
 from p2p_network import P2PNode
+
 from pos_consensus import POSConsensus
 from mining_rewards import RewardCalculator, RewardDistributor
 from bill_hash import BillManager, Bill
