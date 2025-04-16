@@ -27,7 +27,7 @@ class WalletGUI:
         """
         self.root = root
         self.root.title("区块链钱包")
-        self.root.geometry("900x700")
+        self.root.geometry("1280x1024")
         self.root.resizable(True, True)
         
         # 初始化钱包管理器
@@ -337,45 +337,68 @@ class WalletGUI:
             self.select_wallet(name)
         except Exception as e:
             messagebox.showerror("错误", f"导入钱包失败: {e}")
-    
+
     def start_node(self):
         """启动本地节点"""
         if self.node:
             messagebox.showinfo("提示", "节点已经在运行")
             return
         
-        host = simpledialog.askstring("启动节点", "请输入主机地址:", initialvalue="127.0.0.1")
-        if not host:
-            return
+        # 创建自定义对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("启动节点")
+        dialog.geometry("300x250")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.attributes('-topmost', True)
         
-        port = simpledialog.askinteger("启动节点", "请输入端口号:", initialvalue=5000)
-        if not port:
-            return
+        # 添加输入框
+        ttk.Label(dialog, text="请输入主机地址:").pack(pady=5)
+        host_entry = ttk.Entry(dialog)
+        host_entry.pack(pady=5)
+        host_entry.insert(0, "127.0.0.1")
         
-        # 使用当前钱包地址作为节点ID
-        node_id = self.current_wallet.address if self.current_wallet else f"Node_GUI_{port}"
+        ttk.Label(dialog, text="请输入端口号:").pack(pady=5)
+        port_entry = ttk.Entry(dialog)
+        port_entry.pack(pady=5)
+        port_entry.insert(0, "5005")
         
-        self.node = Node(node_id, host, port)
-        self.node.start()
+        # 确认按钮
+        def on_confirm():
+            host = host_entry.get().strip()
+            try:
+                port = int(port_entry.get().strip())
+                dialog.destroy()
+                
+                # 启动节点的代码
+                node_id = self.current_wallet.address if self.current_wallet else f"Node_GUI_{port}"
+                self.node = Node(node_id, host, port)
+                self.node.start()
+
+                # 如果有当前钱包，设置节点的余额为钱包余额
+                if self.current_wallet:
+                    # 同步质押状态
+                    if self.current_wallet.staked_amount > 0:
+                        self.node.staked_amount = self.current_wallet.staked_amount
+                        self.node.pos_consensus.add_stake(self.current_wallet.address, self.current_wallet.staked_amount)
+                
+                self.node_status_var.set(f"节点已启动: {node_id}\n地址: {host}:{port}")
+                self.status_var.set(f"本地节点 {node_id} 已启动")
+                # 更新区块链信息
+                self.update_blockchain_info()
+                
+                # 如果有当前钱包，更新余额
+                if self.current_wallet:
+                    self.update_balance()
+                    self.update_transaction_history()
+                    self.update_stake_info()                
+                
+                
+            except ValueError:
+                messagebox.showerror("错误", "端口必须是数字")
         
-        # 如果有当前钱包，设置节点的余额为钱包余额
-        if self.current_wallet:
-            # 同步质押状态
-            if self.current_wallet.staked_amount > 0:
-                self.node.staked_amount = self.current_wallet.staked_amount
-                self.node.pos_consensus.add_stake(self.current_wallet.address, self.current_wallet.staked_amount)
-        
-        self.node_status_var.set(f"节点已启动: {node_id}\n地址: {host}:{port}")
-        self.status_var.set(f"本地节点 {node_id} 已启动")
-        
-        # 更新区块链信息
-        self.update_blockchain_info()
-        
-        # 如果有当前钱包，更新余额
-        if self.current_wallet:
-            self.update_balance()
-            self.update_transaction_history()
-            self.update_stake_info()
+        ttk.Button(dialog, text="确认", command=on_confirm).pack(pady=10)
+
     
     def connect_to_network(self):
         """连接到网络"""
@@ -383,29 +406,110 @@ class WalletGUI:
             messagebox.showerror("错误", "请先启动本地节点")
             return
         
-        seed_host = simpledialog.askstring("连接网络", "请输入种子节点主机地址:")
-        if not seed_host:
-            return
+        # 创建连接对话框
+        connect_dialog = tk.Toplevel(self.root)
+        connect_dialog.title("连接到网络")
+        connect_dialog.geometry("800x600")
+        connect_dialog.transient(self.root)
+        connect_dialog.grab_set()
+        connect_dialog.transient(self.root)  # 设置为父窗口的临时窗口
+        connect_dialog.grab_set()  # 获取焦点
+        connect_dialog.attributes('-topmost', True)  # 设置为最顶层窗口
+
+        # 手动连接框架
+        manual_frame = ttk.LabelFrame(connect_dialog, text="手动连接", padding=10)
+        manual_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        seed_port = simpledialog.askinteger("连接网络", "请输入种子节点端口号:")
-        if not seed_port:
-            return
+        ttk.Label(manual_frame, text="种子节点地址:").pack(anchor=tk.W)
+        host_entry = ttk.Entry(manual_frame)
+        host_entry.pack(fill=tk.X, pady=2)
+        host_entry.insert(0, "127.0.0.1")
         
-        if self.node.connect_to_network(seed_host, seed_port):
-            messagebox.showinfo("成功", f"已连接到网络节点 {seed_host}:{seed_port}")
-            self.status_var.set(f"已连接到网络节点 {seed_host}:{seed_port}")
+        ttk.Label(manual_frame, text="种子节点端口:").pack(anchor=tk.W)
+        port_entry = ttk.Entry(manual_frame)
+        port_entry.pack(fill=tk.X, pady=2)
+        port_entry.insert(0, "5000")
+        
+        # 自动发现框架
+        auto_frame = ttk.LabelFrame(connect_dialog, text="自动发现", padding=10)
+        auto_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # 预配置节点列表
+        predefined_nodes = [
+            ("主网节点1", "node1.example.com", 5000),
+            ("主网节点2", "node2.example.com", 5000),
+            ("测试网节点", "testnet.example.com", 5000),
+            ("本地节点", "127.0.0.1", 5000)
+        ]
+        
+        node_var = tk.StringVar()
+        for i, (name, host, port) in enumerate(predefined_nodes):
+            ttk.Radiobutton(
+                auto_frame, 
+                text=f"{name} ({host}:{port})", 
+                value=f"{host}:{port}", 
+                variable=node_var
+            ).pack(anchor=tk.W, pady=2)
+        
+        # 如果有预定义节点，默认选择第一个
+        if predefined_nodes:
+            node_var.set(f"{predefined_nodes[0][1]}:{predefined_nodes[0][2]}")
+        
+        # 按钮框架
+        btn_frame = ttk.Frame(connect_dialog)
+        btn_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        def on_manual_connect():
+            host = host_entry.get().strip()
+            try:
+                port = int(port_entry.get().strip())
+                if self.node.connect_to_network(host, port):
+                    messagebox.showinfo("成功", f"已连接到网络节点 {host}:{port}")
+                    self.status_var.set(f"已连接到网络节点 {host}:{port}")
+                    
+                    # 连接成功后自动发现其他节点
+                    self.node.auto_discover_nodes()
+                    
+                    # 同步区块链
+                    self.node.p2p_node.synchronize_blockchain()
+                    
+                    # 更新区块链信息
+                    self.update_blockchain_info()
+                    connect_dialog.destroy()
+                else:
+                    messagebox.showerror("错误", f"连接到网络节点 {host}:{port} 失败")
+            except ValueError:
+                messagebox.showerror("错误", "端口必须是数字")
+        
+        def on_auto_connect():
+            if not node_var.get():
+                messagebox.showerror("错误", "请选择一个预定义节点")
+                return
             
-            # 连接成功后自动发现其他节点
-            self.node.auto_discover_nodes()
+            host, port = node_var.get().split(":")
+            port = int(port)
             
-            # 同步区块链
-            self.node.p2p_node.synchronize_blockchain()
-            
-            # 更新区块链信息
-            self.update_blockchain_info()
-        else:
-            messagebox.showerror("错误", f"连接到网络节点 {seed_host}:{seed_port} 失败")
-    
+            if self.node.connect_to_network(host, port):
+                messagebox.showinfo("成功", f"已连接到网络节点 {host}:{port}")
+                self.status_var.set(f"已连接到网络节点 {host}:{port}")
+                
+                # 连接成功后自动发现其他节点
+                self.node.auto_discover_nodes()
+                
+                # 同步区块链
+                self.node.p2p_node.synchronize_blockchain()
+                
+                # 更新区块链信息
+                self.update_blockchain_info()
+                connect_dialog.destroy()
+            else:
+                messagebox.showerror("错误", f"连接到网络节点 {host}:{port} 失败")
+        
+        ttk.Button(btn_frame, text="手动连接", command=on_manual_connect).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="自动连接", command=on_auto_connect).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="取消", command=connect_dialog.destroy).pack(side=tk.RIGHT, padx=5)
+        
+    # 修改 show_network_info 方法
     def show_network_info(self):
         """显示网络信息"""
         if not self.node:
@@ -426,6 +530,9 @@ class WalletGUI:
         network_dialog = tk.Toplevel(self.root)
         network_dialog.title("网络信息")
         network_dialog.geometry("500x400")
+        network_dialog.transient(self.root)  # 设置为父窗口的临时窗口
+        network_dialog.grab_set()  # 获取焦点
+        network_dialog.attributes('-topmost', True)  # 设置为最顶层窗口
         
         # 添加文本框
         text = tk.Text(network_dialog, wrap=tk.WORD)
@@ -597,34 +704,211 @@ class WalletGUI:
         # 创建对话框
         validator_dialog = tk.Toplevel(self.root)
         validator_dialog.title("验证者信息")
-        validator_dialog.geometry("600x400")
+        validator_dialog.geometry("700x500")
+        
+        # 创建选项卡
+        notebook = ttk.Notebook(validator_dialog)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # 验证者列表选项卡
+        validators_frame = ttk.Frame(notebook)
+        notebook.add(validators_frame, text="验证者列表")
         
         # 验证者列表
-        validator_tree = ttk.Treeview(validator_dialog, columns=("address", "stake", "age", "weight"), show="headings")
+        validator_tree = ttk.Treeview(validators_frame, columns=("address", "stake", "age", "weight", "blocks"), show="headings")
         validator_tree.heading("address", text="地址")
         validator_tree.heading("stake", text="质押金额")
         validator_tree.heading("age", text="质押年龄(天)")
         validator_tree.heading("weight", text="权重")
+        validator_tree.heading("blocks", text="生成区块数")
         validator_tree.column("address", width=200)
         validator_tree.column("stake", width=100)
         validator_tree.column("age", width=100)
         validator_tree.column("weight", width=100)
+        validator_tree.column("blocks", width=100)
         validator_tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # 添加滚动条
-        validator_scrollbar = ttk.Scrollbar(validator_dialog, orient="vertical", command=validator_tree.yview)
+        validator_scrollbar = ttk.Scrollbar(validators_frame, orient="vertical", command=validator_tree.yview)
         validator_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         validator_tree.configure(yscrollcommand=validator_scrollbar.set)
+        
+        # 统计每个验证者生成的区块数
+        validator_blocks = {}
+        for validator in validators:
+            validator_blocks[validator['address']] = 0
+        
+        for block in self.node.blockchain.chain:
+            if block.validator in validator_blocks:
+                validator_blocks[block.validator] += 1
         
         # 填充验证者数据
         for validator in validators:
             is_current = " (当前钱包)" if self.current_wallet and validator['address'] == self.current_wallet.address else ""
+            blocks_count = validator_blocks.get(validator['address'], 0)
             validator_tree.insert("", tk.END, values=(
                 validator['address'] + is_current,
                 validator['stake_amount'],
                 f"{validator['stake_age']:.2f}",
-                f"{validator['weight']:.2f}"
+                f"{validator['weight']:.2f}",
+                blocks_count
             ))
+        
+        # 当前验证者状态选项卡（如果当前钱包是验证者）
+        if self.current_wallet:
+            current_validator = None
+            for validator in validators:
+                if validator['address'] == self.current_wallet.address:
+                    current_validator = validator
+                    break
+            
+            if current_validator:
+                current_frame = ttk.Frame(notebook)
+                notebook.add(current_frame, text="当前验证者状态")
+                
+                # 创建详细信息显示
+                info_frame = ttk.LabelFrame(current_frame, text="验证者详细信息", padding=10)
+                info_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+                
+                # 获取更多详细信息
+                blocks_validated = validator_blocks.get(self.current_wallet.address, 0)
+                next_forge_time = time.time() + (self.node.pos_consensus.block_time - 
+                                            (time.time() - self.node.pos_consensus.last_block_time))
+                
+                # 计算预计收益
+                expected_reward = 0
+                if blocks_validated > 0:
+                    # 计算平均每个区块的奖励
+                    total_reward = 0
+                    reward_blocks = 0
+                    for block in self.node.blockchain.chain:
+                        if block.validator == self.current_wallet.address:
+                            for tx in block.transactions:
+                                if tx.sender == "COINBASE" and tx.recipient == self.current_wallet.address:
+                                    total_reward += tx.amount
+                                    reward_blocks += 1
+                    
+                    if reward_blocks > 0:
+                        avg_reward = total_reward / reward_blocks
+                        # 预计每天的区块数
+                        blocks_per_day = 24 * 60 * 60 / self.node.pos_consensus.block_time
+                        # 根据权重比例计算预期每天生成的区块数
+                        total_weight = sum(v['weight'] for v in validators)
+                        weight_ratio = current_validator['weight'] / total_weight if total_weight > 0 else 0
+                        expected_blocks = blocks_per_day * weight_ratio
+                        expected_reward = expected_blocks * avg_reward
+                
+                # 显示详细信息
+                info_text = f"""
+    地址: {self.current_wallet.address}
+    质押金额: {current_validator['stake_amount']}
+    质押年龄: {current_validator['stake_age']:.2f} 天
+    权重: {current_validator['weight']:.2f}
+    生成区块数: {blocks_validated}
+    下次可能生成区块时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(next_forge_time))}
+    预计每日收益: {expected_reward:.6f}
+                """
+                
+                info_label = ttk.Label(info_frame, text=info_text, justify=tk.LEFT)
+                info_label.pack(padx=10, pady=10)
+                
+                # 添加区块生成历史
+                history_frame = ttk.LabelFrame(current_frame, text="区块生成历史", padding=10)
+                history_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+                
+                history_tree = ttk.Treeview(history_frame, columns=("index", "time", "txs", "reward"), show="headings")
+                history_tree.heading("index", text="区块索引")
+                history_tree.heading("time", text="生成时间")
+                history_tree.heading("txs", text="交易数")
+                history_tree.heading("reward", text="奖励")
+                history_tree.column("index", width=80)
+                history_tree.column("time", width=150)
+                history_tree.column("txs", width=80)
+                history_tree.column("reward", width=100)
+                history_tree.pack(fill=tk.BOTH, expand=True)
+                
+                # 添加滚动条
+                history_scrollbar = ttk.Scrollbar(history_frame, orient="vertical", command=history_tree.yview)
+                history_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+                history_tree.configure(yscrollcommand=history_scrollbar.set)
+                
+                # 填充区块生成历史
+                for block in reversed(self.node.blockchain.chain):
+                    if block.validator == self.current_wallet.address:
+                        # 查找奖励交易
+                        reward = 0
+                        for tx in block.transactions:
+                            if tx.sender == "COINBASE" and tx.recipient == self.current_wallet.address:
+                                reward = tx.amount
+                                break
+                        
+                        block_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(block.timestamp))
+                        history_tree.insert("", tk.END, values=(
+                            block.index,
+                            block_time,
+                            len(block.transactions),
+                            f"{reward:.6f}"
+                        ))
+        
+        # 网络验证状态选项卡
+        network_frame = ttk.Frame(notebook)
+        notebook.add(network_frame, text="网络验证状态")
+        
+        # 创建网络验证状态信息
+        network_info_frame = ttk.Frame(network_frame, padding=10)
+        network_info_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # 获取网络验证状态信息
+        total_stake = sum(validator['stake_amount'] for validator in validators)
+        active_validators = len(validators)
+        avg_stake = total_stake / active_validators if active_validators > 0 else 0
+        
+        # 计算区块生成统计
+        block_count = len(self.node.blockchain.chain)
+        if block_count > 1:  # 跳过创世区块
+            avg_block_time = 0
+            if block_count > 2:
+                total_time = self.node.blockchain.chain[-1].timestamp - self.node.blockchain.chain[1].timestamp
+                avg_block_time = total_time / (block_count - 2)
+            
+            last_block_time = time.strftime('%Y-%m-%d %H:%M:%S', 
+                                        time.localtime(self.node.blockchain.chain[-1].timestamp))
+            
+            network_info = f"""
+    网络验证状态:
+    活跃验证者数量: {active_validators}
+    总质押金额: {total_stake}
+    平均质押金额: {avg_stake:.2f}
+    区块链长度: {block_count}
+    平均区块生成时间: {avg_block_time:.2f} 秒
+    最新区块生成时间: {last_block_time}
+    目标区块时间: {self.node.pos_consensus.block_time} 秒
+            """
+            
+            network_label = ttk.Label(network_info_frame, text=network_info, justify=tk.LEFT)
+            network_label.pack(padx=10, pady=10)
+            
+            # 添加验证者分布图
+            # 表
+            chart_frame = ttk.LabelFrame(network_frame, text="验证者权重分布", padding=10)
+            chart_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            # 这里可以添加图表，但由于tkinter本身不支持图表，
+            # 您可能需要使用matplotlib或其他图表库
+            # 以下是一个简单的文本表示
+            chart_text = "验证者权重分布:\n\n"
+            
+            # 按权重排序
+            sorted_validators = sorted(validators, key=lambda v: v['weight'], reverse=True)
+            
+            for validator in sorted_validators:
+                weight_percent = (validator['weight'] / sum(v['weight'] for v in validators)) * 100 if validators else 0
+                bars = int(weight_percent / 2)  # 每2%一个字符
+                chart_text += f"{validator['address'][:10]}...: {validator['weight']:.2f} ({weight_percent:.2f}%) "
+                chart_text += "█" * bars + "\n"
+            
+            chart_label = ttk.Label(chart_frame, text=chart_text, justify=tk.LEFT, font=("Courier", 10))
+            chart_label.pack(padx=10, pady=10)
     
     def show_bills(self):
         """显示账单"""
@@ -697,6 +981,8 @@ class WalletGUI:
         
         ttk.Button(bill_dialog, text="支付选中账单", command=on_pay_selected).pack(pady=10)
     
+    # 在 wallet_gui.py 中的 WalletGUI 类中修改
+
     def update_transaction_history(self):
         """更新交易历史"""
         if not self.current_wallet or not self.node:
@@ -707,20 +993,22 @@ class WalletGUI:
             self.history_tree.delete(item)
         
         # 获取交易历史
-        history = []
+        history = self.current_wallet.get_transaction_history(self.node)
         
-        # 从区块链中获取与当前钱包相关的交易
-        for block in self.node.blockchain.chain:
-            for tx in block.transactions:
+        # 如果没有从存储中获取到历史，则从区块链中获取
+        if not history:
+            # 从区块链中获取与当前钱包相关的交易
+            for block in self.node.blockchain.chain:
+                for tx in block.transactions:
+                    if tx.sender == self.current_wallet.address or tx.recipient == self.current_wallet.address:
+                        history.append(tx.to_dict())
+            
+            # 从待处理交易中获取与当前钱包相关的交易
+            for tx in self.node.blockchain.pending_transactions:
                 if tx.sender == self.current_wallet.address or tx.recipient == self.current_wallet.address:
-                    history.append(tx.to_dict())
-        
-        # 从待处理交易中获取与当前钱包相关的交易
-        for tx in self.node.blockchain.pending_transactions:
-            if tx.sender == self.current_wallet.address or tx.recipient == self.current_wallet.address:
-                tx_dict = tx.to_dict()
-                tx_dict['pending'] = True
-                history.append(tx_dict)
+                    tx_dict = tx.to_dict()
+                    tx_dict['pending'] = True
+                    history.append(tx_dict)
         
         # 按时间戳排序
         history.sort(key=lambda x: x['timestamp'], reverse=True)
@@ -877,28 +1165,144 @@ class WalletGUI:
             messagebox.showerror("错误", "请先启动本地节点")
             return
         
-        amount = simpledialog.askfloat("质押代币", "请输入质押金额:")
-        if not amount or amount <= 0:
-            messagebox.showerror("错误", "质押金额必须大于0")
-            return
+        # 创建质押对话框
+        stake_dialog = tk.Toplevel(self.root)
+        stake_dialog.title("质押代币")
+        stake_dialog.geometry("800x600")
+        stake_dialog.transient(self.root)
+        stake_dialog.grab_set()
         
-        # 质押代币
-        if self.current_wallet.stake_tokens(amount, self.node):
-            messagebox.showinfo("成功", f"已质押 {amount} 代币")
-            self.status_var.set(f"已质押 {amount} 代币")
-            
-            # 更新质押信息
-            self.update_stake_info()
-            self.update_balance()
-            
-            # 广播验证者信息
-            if self.node.node_id in self.node.pos_consensus.validators:
-                self.node.p2p_node.broadcast_validator_info(
-                    self.current_wallet.staked_amount,
-                    self.node.pos_consensus
-                )
-        else:
-            messagebox.showerror("错误", f"质押代币失败")
+        # 获取当前余额和质押信息
+        balance = self.current_wallet.get_balance(self.node)
+        staked = self.current_wallet.get_staked_amount()
+        
+        # 显示当前信息
+        info_frame = ttk.LabelFrame(stake_dialog, text="当前信息", padding=10)
+        info_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        info_text = f"""
+    可用余额: {balance}
+    已质押金额: {staked}
+    总资产: {balance + staked}
+    最低质押要求: {self.node.pos_consensus.min_stake_amount}
+        """
+        
+        info_label = ttk.Label(info_frame, text=info_text, justify=tk.LEFT)
+        info_label.pack(padx=10, pady=10)
+        
+        # 质押金额输入
+        stake_frame = ttk.LabelFrame(stake_dialog, text="质押设置", padding=10)
+        stake_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Label(stake_frame, text="质押金额:").pack(anchor=tk.W)
+        amount_var = tk.StringVar()
+        amount_entry = ttk.Entry(stake_frame, textvariable=amount_var)
+        amount_entry.pack(fill=tk.X, pady=2)
+        
+        # 添加快速选择按钮
+        quick_frame = ttk.Frame(stake_frame)
+        quick_frame.pack(fill=tk.X, pady=5)
+        
+        def set_amount(percent):
+            amount = balance * percent / 100
+            amount_var.set(f"{amount:.2f}")
+        
+        ttk.Button(quick_frame, text="25%", command=lambda: set_amount(25)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(quick_frame, text="50%", command=lambda: set_amount(50)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(quick_frame, text="75%", command=lambda: set_amount(75)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(quick_frame, text="最大", command=lambda: set_amount(100)).pack(side=tk.LEFT, padx=5)
+        
+        # 预计收益信息
+        reward_frame = ttk.LabelFrame(stake_dialog, text="预计收益", padding=10)
+        reward_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        reward_var = tk.StringVar(value="输入质押金额以查看预计收益")
+        reward_label = ttk.Label(reward_frame, textvariable=reward_var, justify=tk.LEFT)
+        reward_label.pack(padx=10, pady=10)
+        
+        # 计算预计收益
+        def calculate_reward(*args):
+            try:
+                amount = float(amount_var.get())
+                # if amount <= 0:
+                #     reward_var.set("质押金额必须大于0")
+                #     return
+                
+                # 获取验证者信息
+                validators = self.node.get_validator_info()
+                total_stake = sum(v['stake_amount'] for v in validators)
+                
+                # 计算新的总质押和权重比例
+                new_total_stake = total_stake + amount
+                weight_ratio = amount / new_total_stake if new_total_stake > 0 else 0
+                
+                # 计算预计每天的区块数和奖励
+                blocks_per_day = 24 * 60 * 60 / self.node.pos_consensus.block_time
+                expected_blocks = blocks_per_day * weight_ratio
+                
+                # 估算每个区块的奖励
+                base_reward = self.node.reward_calculator.calculate_block_reward(len(self.node.blockchain.chain))
+                
+                expected_daily_reward = expected_blocks * base_reward
+                expected_monthly_reward = expected_daily_reward * 30
+                expected_yearly_reward = expected_daily_reward * 365
+                
+                # 计算年化收益率
+                apy = (expected_yearly_reward / amount) * 100 if amount > 0 else 0
+                
+                reward_text = f"""
+    预计每日收益: {expected_daily_reward:.6f}
+    预计每月收益: {expected_monthly_reward:.6f}
+    预计每年收益: {expected_yearly_reward:.6f}
+    预计年化收益率: {apy:.2f}%
+                """
+                
+                reward_var.set(reward_text)
+            except ValueError:
+                reward_var.set("请输入有效的质押金额")
+        
+        # 监听金额变化
+        amount_var.trace_add("write", calculate_reward)
+        
+        # 按钮操作
+        btn_frame = ttk.Frame(stake_dialog)
+        btn_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        def on_stake():
+            try:
+                amount = float(amount_var.get())
+                # if amount <= 0:
+                #     messagebox.showerror("错误", "质押金额必须大于0")
+                #     return
+                
+                if amount > balance:
+                    messagebox.showerror("错误", f"余额不足: {balance} < {amount}")
+                    return
+                
+                # 质押代币
+                if self.current_wallet.stake_tokens(amount, self.node):
+                    messagebox.showinfo("成功", f"已质押 {amount} 代币")
+                    self.status_var.set(f"已质押 {amount} 代币")
+                    
+                    # 更新质押信息
+                    self.update_stake_info()
+                    self.update_balance()
+                    
+                    # 广播验证者信息
+                    if self.node.node_id in self.node.pos_consensus.validators:
+                        self.node.p2p_node.broadcast_validator_info(
+                            self.current_wallet.staked_amount,
+                            self.node.pos_consensus
+                        )
+                    
+                    stake_dialog.destroy()
+                else:
+                    messagebox.showerror("错误", f"质押代币失败")
+            except ValueError:
+                messagebox.showerror("错误", "请输入有效的质押金额")
+        
+        ttk.Button(btn_frame, text="质押", command=on_stake).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="取消", command=stake_dialog.destroy).pack(side=tk.RIGHT, padx=5)
     
     def unstake_tokens(self):
         """取消质押"""

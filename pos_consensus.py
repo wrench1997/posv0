@@ -48,12 +48,14 @@ class StakeInfo:
 class POSConsensus:
     """POS共识机制类"""
     
+    # 在 POSConsensus 类的 __init__ 方法中修改
     def __init__(self, blockchain: Blockchain, min_stake_amount: float = 10.0):
         """
         初始化POS共识机制
         
         Args:
-            blockchain: 区块链实例
+            blockchain: 区块链实
+            例
             min_stake_amount: 最小质押金额
         """
         self.blockchain = blockchain
@@ -61,22 +63,27 @@ class POSConsensus:
         self.stakes: Dict[str, StakeInfo] = {}  # 地址 -> 质押信息
         self.validators: List[str] = []  # 验证者地址列表
         self.last_block_time = time.time()
-        self.block_time = 30  # 区块生成时间间隔（秒）
+        self.block_time = 180  # 区块生成时间间隔（秒），从30秒改为180秒（3分钟）
     
-    def add_stake(self, address: str, amount: float) -> bool:
+    # 在 pos_consensus.py 文件中修改 add_stake 方法
+
+    def add_stake(self, address: str, amount: float, is_initial_node: bool = False) -> bool:
         """
         添加质押
         
         Args:
             address: 质押者地址
             amount: 质押金额
+            is_initial_node: 是否为初始节点（初始节点可以绕过最小质押金额限制）
             
         Returns:
             bool: 质押是否成功
         """
-        if amount < self.min_stake_amount:
-            print(f"质押金额 {amount} 小于最小质押金额 {self.min_stake_amount}")
-            return False
+        # 允许任何节点进行质押，但没有资金的节点将排在最后
+        # 如果不是初始节点，检查最小质押金额
+        if not is_initial_node and amount < self.min_stake_amount:
+            print(f"质押金额 {amount} 小于最小质押金额 {self.min_stake_amount}，但仍允许质押")
+            # 继续执行，不返回 False
         
         current_time = time.time()
         
@@ -89,8 +96,8 @@ class POSConsensus:
             self.stakes[address] = StakeInfo(address, amount, current_time)
             print(f"地址 {address} 添加新质押 {amount}")
         
-        # 如果质押金额达到最小质押金额，将地址添加到验证者列表
-        if address not in self.validators and self.stakes[address].amount >= self.min_stake_amount:
+        # 将地址添加到验证者列表，无论质押金额多少
+        if address not in self.validators:
             self.validators.append(address)
             print(f"地址 {address} 成为验证者")
         

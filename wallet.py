@@ -312,13 +312,22 @@ class Wallet:
             print(f"支付账单失败: {e}")
             return None
     
-    def get_transaction_history(self) -> List[Dict[str, Any]]:
+
+    def get_transaction_history(self, node=None) -> List[Dict[str, Any]]:
         """
         获取交易历史
         
+        Args:
+            node: 节点实例（可选）
+            
         Returns:
             List[Dict[str, Any]]: 交易历史列表
         """
+        # 如果提供了节点，从区块链存储中获取交易历史
+        if node and hasattr(node, 'blockchain_storage'):
+            return node.blockchain_storage.get_transaction_history(self.address, node.node_id)
+        
+        # 否则返回内存中的交易历史
         return [tx.to_dict() for tx in self.transaction_history]
     
     def export_public_key(self) -> str:
@@ -383,9 +392,9 @@ class Wallet:
         Returns:
             bool: 质押是否成功
         """
-        if amount <= 0:
-            print("质押金额必须大于0")
-            return False
+        # if amount <= 0:
+        #     print("质押金额必须大于0")
+        #     return False
         
         # 检查余额
         available_balance = self.get_balance(node)

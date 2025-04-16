@@ -1,5 +1,4 @@
 
-# demo.py
 
 import time
 import threading
@@ -13,6 +12,7 @@ from p2p_network import P2PNode
 from pos_consensus import POSConsensus
 from mining_rewards import RewardCalculator, RewardDistributor
 from bill_hash import BillManager, Bill
+from blockchain_storage import BlockchainStorage
 
 class Node:
     """节点类，整合所有模块"""
@@ -53,7 +53,18 @@ class Node:
         
         # 质押金额
         self.staked_amount = 0.0
+        
+        # 添加区块链存储
+        self.blockchain_storage = BlockchainStorage()
+        
+        # 尝试加载已有区块链数据
+        loaded_blockchain = self.blockchain_storage.load_blockchain(node_id)
+        if loaded_blockchain:
+            self.blockchain = loaded_blockchain
+            print(f"已加载区块链数据，链长度: {len(self.blockchain.chain)}")
     
+    # 在 main.py 中的 Node 类的 start 方法中添加
+
     def start(self) -> None:
         """启动节点"""
         # 启动P2P网络
@@ -64,7 +75,20 @@ class Node:
         # 启动区块生成线程
         threading.Thread(target=self.block_generation_loop, daemon=True).start()
         
+        # 启动自动保存线程
+        threading.Thread(target=self.auto_save_loop, daemon=True).start()
+        
         print(f"节点 {self.node_id} 启动成功")
+
+    def auto_save_loop(self) -> None:
+        """自动保存循环"""
+        save_interval = 300  # 5分钟保存一次
+        
+        while self.running:
+            time.sleep(save_interval)
+            if self.running:  # 再次检查，避免在关闭过程中保存
+                self.save_blockchain_data()
+                print(f"自动保存区块链数据完成，链长度: {len(self.blockchain.chain)}")
 
     def auto_discover_nodes(self) -> None:
         """自动发现网络中的节点"""
@@ -108,6 +132,9 @@ class Node:
 
     def stop(self) -> None:
         """停止节点"""
+        # 保存区块链数据
+        self.save_blockchain_data()
+        
         self.running = False
         self.p2p_node.stop()
         print(f"节点 {self.node_id} 已停止")
@@ -135,9 +162,9 @@ class Node:
         Returns:
             bool: 质押是否成功
         """
-        if amount <= 0:
-            print("质押金额必须大于0")
-            return False
+        # if amount <= 0:
+        #     print("质押金额必须大于0")
+        #     return False
         
         if amount > self.balance:
             print(f"余额不足: {self.balance} < {amount}")
@@ -310,6 +337,9 @@ class Node:
                             self.balance += reward
                             
                             print(f"节点 {self.node_id} 成功生成区块 {new_block.index}，获得奖励: {reward}")
+                            
+                            # 保存区块链数据
+                            self.save_blockchain_data()
                         else:
                             print(f"节点 {self.node_id} 添加区块失败")
                     else:
@@ -357,126 +387,8 @@ class Node:
             List[Dict]: 验证者信息列表
         """
         return self.pos_consensus.get_validator_info()
-
-
-def run_demo():
-    """运行演示"""
-    print("启动区块链演示...")
     
-    # 创建节点
-    nodes = []
-    for i in range(3):
-        node_id = f"Node_{i}"
-        host = "127.0.0.1"
-        port = 5002 + i
-        node = Node(node_id, host, port)
-        nodes.append(node)
-        node.start()
-        print(f"节点 {node_id} 启动，地址: {host}:{port}")
-    
-    # 连接第一个节点
-    nodes[1].connect_to_network("127.0.0.1", 5002)
-    print(f"节点 {nodes[1].node_id} 连接到节点 {nodes[0].node_id}")
-    
-    # 使用自动发现连接其他节点
-    print("使用自动发现连接其他节点...")
-    nodes[1].auto_discover_nodes()
-    
-    # 第三个节点也连接到网络
-    nodes[2].connect_to_network("127.0.0.1", 5003)  # 连接到第二个节点
-    nodes[2].auto_discover_nodes()  # 自动发现其他节点
-    
-    # 质押代币
-    for node in nodes:
-        time.sleep(1)
-        stake_amount = random.uniform(10, 50)
-        node.stake(stake_amount)
-    
-    # 创建一些交易
-    for _ in range(1):
-        sender_idx = random.randint(0, 2)
-        recipient_idx = random.randint(0, 2)
-        while recipient_idx == sender_idx:
-            recipient_idx = random.randint(0, 2)
-        
-        amount = random.uniform(1, 5)
-        nodes[sender_idx].create_transaction(nodes[recipient_idx].node_id, amount)
-    
-    # 创建并支付账单
-    for _ in range(1):
-        payer_idx = random.randint(0, 2)
-        payee_idx = random.randint(0, 2)
-        while payee_idx == payer_idx:
-            payee_idx = random.randint(0, 2)
-        
-        amount = random.uniform(1, 3)
-        description = f"Payment for service #{uuid.uuid4().hex[:8]}"
-        
-        bill = nodes[payer_idx].create_bill(nodes[payee_idx].node_id, amount, description)
-        nodes[payer_idx].pay_bill(bill)
-    
-    # 等待一段时间，让区块生成
-    print("等待区块生成...")
-    time.sleep(15)
-    
-    # 验证最新区块的工作量
-    for node in nodes:
-        latest_block = node.blockchain.get_latest_block()
-        if latest_block.index > 0:  # 跳过创世区块
-            print(f"\n节点 {node.node_id} 验证最新区块 {latest_block.index} 的工作量:")
-            is_valid = node.verify_work(latest_block)
-            print(f"工作量验证结果: {'有效' if is_valid else '无效'}")
-    
-    # 显示节点信息
-    for node in nodes:
-        print(f"\n节点 {node.node_id} 信息:")
-        print(f"余额: {node.get_balance()}")
-        print(f"质押金额: {node.get_staked_amount()}")
-        print(f"区块链信息: {node.get_blockchain_info()}")
-        print(f"验证者信息: {node.get_validator_info()}")
-        print(f"已连接节点数: {len(node.p2p_node.peers)}")
-        print(f"已连接节点: {list(node.p2p_node.peers.keys())}")
-
-    # 再创建一些交易和账单
-    for _ in range(1):
-        payer_idx = random.randint(0, 2)
-        payee_idx = random.randint(0, 2)
-        while payee_idx == payer_idx:
-            payee_idx = random.randint(0, 2)
-        
-        amount = random.uniform(1, 3)
-        description = f"Payment for service #{uuid.uuid4().hex[:8]}"
-        
-        bill = nodes[payer_idx].create_bill(nodes[payee_idx].node_id, amount, description)
-        nodes[payer_idx].pay_bill(bill)
-
-    # 等待一段时间，让区块生成
-    print("等待区块生成...")
-    time.sleep(30)
-    
-    # 再次验证最新区块的工作量
-    for node in nodes:
-        latest_block = node.blockchain.get_latest_block()
-        if latest_block.index > 0:  # 跳过创世区块
-            print(f"\n节点 {node.node_id} 验证最新区块 {latest_block.index} 的工作量:")
-            is_valid = node.verify_work(latest_block)
-            print(f"工作量验证结果: {'有效' if is_valid else '无效'}")
-    
-    # 显示节点信息
-    for node in nodes:
-        print(f"\n节点 {node.node_id} 信息:")
-        print(f"余额: {node.get_balance()}")
-        print(f"质押金额: {node.get_staked_amount()}")
-        print(f"区块链信息: {node.get_blockchain_info()}")
-        print(f"验证者信息: {node.get_validator_info()}")        
-
-    # 停止节点
-    for node in nodes:
-        node.stop()
-    
-    print("演示结束")
-    exit(0)
-
-
-if __name__ == "__main__":
-    run_demo()
+    # 添加保存区块链数据的方法
+    def save_blockchain_data(self) -> bool:
+        """保存区块链数据"""
+        return self.blockchain_storage.save_blockchain(self.blockchain, self.node_id)
