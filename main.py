@@ -1,4 +1,5 @@
 
+
 import time
 import threading
 import random
@@ -59,13 +60,21 @@ class Node:
         # 尝试加载已有区块链数据
         loaded_blockchain = self.blockchain_storage.load_blockchain(node_id)
         if loaded_blockchain:
-            self.blockchain = loaded_blockchain
-            print(f"已加载区块链数据，链长度: {len(self.blockchain.chain)}")
+            # 验证加载的区块链
+            if loaded_blockchain.is_chain_valid():
+                self.blockchain = loaded_blockchain
+                print(f"已加载有效的区块链数据，链长度: {len(self.blockchain.chain)}")
+            else:
+                print("加载的区块链数据无效，使用新的区块链")
+                # 可以选择尝试修复或使用新的区块链
     
     # 在 main.py 中的 Node 类的 start 方法中添加
 
     def start(self) -> None:
         """启动节点"""
+        # 确保区块链一致性
+        self.ensure_blockchain_consistency()
+        
         # 启动P2P网络
         self.p2p_node.start()
         
@@ -398,3 +407,39 @@ class Node:
     def save_blockchain_data(self) -> bool:
         """保存区块链数据"""
         return self.blockchain_storage.save_blockchain(self.blockchain, self.node_id)
+
+
+    def ensure_blockchain_consistency(self):
+        """确保区块链状态一致性"""
+        # 验证整个链
+        if not self.blockchain.is_chain_valid():
+            print("区块链状态不一致，尝试修复...")
+            # 尝试修复区块链
+            self.repair_blockchain()
+        else:
+            print("区块链状态一致")
+
+    def repair_blockchain(self):
+        """尝试修复区块链"""
+        # 找到最后一个有效区块
+        valid_chain_length = 0
+        for i in range(len(self.blockchain.chain)):
+            if i == 0 or (self.blockchain.chain[i].previous_hash == self.blockchain.chain[i-1].hash and 
+                        self.blockchain.chain[i].hash == self.blockchain.chain[i].calculate_hash()):
+                valid_chain_length = i + 1
+            else:
+                break
+        
+        if valid_chain_length < len(self.blockchain.chain):
+            print(f"截断区块链至长度 {valid_chain_length}")
+            # 保存被移除区块中的交易
+            for block in self.blockchain.chain[valid_chain_length:]:
+                for tx in block.transactions:
+                    if tx.sender != "COINBASE" and not any(t.transaction_id == tx.transaction_id for t in self.blockchain.pending_transactions):
+                        self.blockchain.pending_transactions.append(tx)
+            
+            # 截断链
+            self.blockchain.chain = self.blockchain.chain[:valid_chain_length]
+            
+            # 保存修复后的区块链
+            self.save_blockchain_data()

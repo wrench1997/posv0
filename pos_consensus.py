@@ -191,15 +191,6 @@ class POSConsensus:
         return current_time - self.last_block_time >= self.block_time
     
     def forge_block(self, validator_address: str) -> Optional[Block]:
-        """
-        生成新区块
-        
-        Args:
-            validator_address: 验证者地址
-            
-        Returns:
-            Optional[Block]: 生成的新区块，如果生成失败则返回None
-        """
         if validator_address not in self.validators:
             print(f"地址 {validator_address} 不是验证者")
             return None
@@ -207,20 +198,16 @@ class POSConsensus:
         # 创建新区块
         new_block = self.blockchain.create_block(validator_address)
         
-        # 检查区块索引是否正确
+        # 确保区块索引正确
         expected_index = len(self.blockchain.chain)
         if new_block.index != expected_index:
             print(f"区块索引不匹配，期望 {expected_index}，实际 {new_block.index}，重新设置索引")
-            # 修正区块索引和前一个区块哈希
             new_block.index = expected_index
             new_block.previous_hash = self.blockchain.get_latest_block().hash
-            # 重新计算区块哈希
             new_block.hash = new_block.calculate_hash()
         
         # 更新最后区块时间
         self.last_block_time = time.time()
-        
-        print(f"验证者 {validator_address} 生成新区块: {new_block.index}")
         
         return new_block
     
