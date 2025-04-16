@@ -31,6 +31,9 @@ class Wallet:
         
         # 创建钱包目录
         os.makedirs(wallet_dir, exist_ok=True)
+
+        # 初始化质押信息（无论是新钱包还是加载已有钱包）
+        self.staked_amount = 0.0
         
         if load_existing and name:
             # 加载已存在的钱包
@@ -48,8 +51,8 @@ class Wallet:
         # 初始化账单管理器
         self.bill_manager = BillManager()
         
-        # 初始化质押信息
-        self.staked_amount = 0.0
+        # # 初始化质押信息
+        # self.staked_amount = 0.0
     
     def _generate_keys(self) -> None:
         """生成新的密钥对"""

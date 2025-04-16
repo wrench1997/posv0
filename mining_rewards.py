@@ -26,6 +26,7 @@ class RewardCalculator:
         Args:
             block_index: 区块索引
             
+            
         Returns:
             float: 区块奖励金额
         """
