@@ -23,6 +23,9 @@ class Message:
     TYPE_NEW_TRANSACTION = "NEW_TRANSACTION"
     TYPE_BLOCK_REQUEST = "BLOCK_REQUEST"
     TYPE_BLOCK_RESPONSE = "BLOCK_RESPONSE"
+    TYPE_PROPOSAL = "PROPOSAL"
+    TYPE_PREVOTE = "PREVOTE"
+    TYPE_PRECOMMIT = "PRECOMMIT"
     
     def __init__(self, msg_type: str, data: Dict[str, Any], sender: str):
         """
@@ -961,3 +964,59 @@ class P2PNode:
                         stake_data['timestamp']
                     )
                     self.node.pos_consensus.stakes[address].age = stake_data['age']
+    
+    def handle_proposal(self, message: Message) -> None:
+        """处理提议消息"""
+        block_dict = message.data['block']
+        proposer = message.sender
+        
+        # 将字典转换为区块对象
+        block = Block.from_dict(block_dict)
+        
+        # 将提议传递给共识模块
+        self.node.tendermint_consensus.receive_proposal(block, proposer)
+
+    def handle_prevote(self, message: Message) -> None:
+        """处理预投票消息"""
+        vote_dict = message.data['vote']
+        
+        # 将字典转换为投票对象
+        vote = Vote.from_dict(vote_dict)
+        
+        # 将投票传递给共识模块
+        self.node.tendermint_consensus.receive_prevote(vote)
+
+    def handle_precommit(self, message: Message) -> None:
+        """处理预提交消息"""
+        vote_dict = message.data['vote']
+        
+        # 将字典转换为投票对象
+        vote = Vote.from_dict(vote_dict)
+        
+        # 将投票传递给共识模块
+        self.node.tendermint_consensus.receive_precommit(vote)
+
+    # 添加广播方法
+    def broadcast_proposal(self, block: Block) -> None:
+        """广播提议"""
+        message = Message(
+            Message.TYPE_PROPOSAL,
+            {
+                'block': block.to_dict()
+            },
+            self.node_id
+        )
+        
+        self.broadcast_message(message)
+
+    def broadcast_vote(self, vote: Vote) -> None:
+        """广播投票"""
+        message = Message(
+            vote.type.upper(),  # PREVOTE 或 PRECOMMIT
+            {
+                'vote': vote.to_dict()
+            },
+            self.node_id
+        )
+        
+        self.broadcast_message(message)

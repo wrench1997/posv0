@@ -68,6 +68,16 @@ class Node:
                 self.blockchain.pending_transactions = loaded_blockchain.pending_transactions
             else:
                 print("Loaded blockchain data is invalid, using new blockchain")
+        
+        # 初始化Tendermint共识
+        self.tendermint_consensus = TendermintConsensus(self.blockchain, node_id)
+        
+        # 添加消息处理器
+        self.p2p_node.message_handlers.update({
+            Message.TYPE_PROPOSAL: self.p2p_node.handle_proposal,
+            Message.TYPE_PREVOTE: self.p2p_node.handle_prevote,
+            Message.TYPE_PRECOMMIT: self.p2p_node.handle_precommit
+        })
 
     
     # 在 main.py 中的 Node 类的 start 方法中添加
@@ -88,7 +98,23 @@ class Node:
         # 启动自动保存线程
         threading.Thread(target=self.auto_save_loop, daemon=True).start()
         
-        print(f"节点 {self.node_id} 启动成功")
+        # 启动Tendermint共识
+        threading.Thread(target=self.tendermint_consensus_loop, daemon=True).start()
+        
+        print(f"节点 {self.node_id} 启动成功，使用Tendermint共识")
+
+    def tendermint_consensus_loop(self) -> None:
+        """Tendermint共识循环"""
+        # 等待P2P网络启动
+        time.sleep(2)
+        
+        # 启动共识过程
+        self.tendermint_consensus.start_consensus()
+        
+        # 定期检查超时
+        while self.running:
+            self.tendermint_consensus.check_timeout()
+            time.sleep(1)
 
     def auto_save_loop(self) -> None:
         """自动保存循环"""
@@ -191,6 +217,8 @@ class Node:
         
         if success:
             print(f"节点 {self.node_id} 质押 {amount} 代币成功，当前质押: {self.staked_amount}，余额: {self.balance}")
+            # 更新Tendermint验证者
+            self.tendermint_consensus.add_validator(self.node_id, amount)
         else:
             # 如果质押失败，恢复余额
             self.balance += amount
@@ -232,6 +260,13 @@ class Node:
             self.staked_amount -= amount
             
             print(f"节点 {self.node_id} 取消质押 {amount} 代币成功，当前质押: {self.staked_amount}，余额: {self.balance}")
+            
+            # 更新Tendermint验证者
+            if self.staked_amount == 0:
+                self.tendermint_consensus.remove_validator(self.node_id)
+            else:
+                # 否则更新质押金额
+                self.tendermint_consensus.validators[self.node_id] = self.staked_amount
         else:
             print(f"节点 {self.node_id} 取消质押失败")
         
