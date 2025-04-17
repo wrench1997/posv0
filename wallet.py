@@ -31,6 +31,9 @@ class Wallet:
         
         # 创建钱包目录
         os.makedirs(wallet_dir, exist_ok=True)
+
+        # 初始化质押信息（无论是新钱包还是加载已有钱包）
+        self.staked_amount = 0.0
         
         if load_existing and name:
             # 加载已存在的钱包
@@ -47,6 +50,9 @@ class Wallet:
         
         # 初始化账单管理器
         self.bill_manager = BillManager()
+        
+        # # 初始化质押信息
+        # self.staked_amount = 0.0
     
     def _generate_keys(self) -> None:
         """生成新的密钥对"""
@@ -103,7 +109,8 @@ class Wallet:
             'name': self.name,
             'address': self.address,
             'private_key': base64.b64encode(private_bytes).decode('utf-8'),
-            'public_key': base64.b64encode(public_bytes).decode('utf-8')
+            'public_key': base64.b64encode(public_bytes).decode('utf-8'),
+            'staked_amount': self.staked_amount
         }
         
         # 保存到文件
@@ -135,6 +142,9 @@ class Wallet:
             # 加载公钥
             public_bytes = base64.b64decode(wallet_data['public_key'])
             self.public_key = serialization.load_pem_public_key(public_bytes)
+            
+            # 加载质押金额（如果存在）
+            self.staked_amount = wallet_data.get('staked_amount', 0.0)
             
             print(f"已加载钱包: {self.name}, 地址: {self.address}")
         except Exception as e:
@@ -302,13 +312,22 @@ class Wallet:
             print(f"支付账单失败: {e}")
             return None
     
-    def get_transaction_history(self) -> List[Dict[str, Any]]:
+
+    def get_transaction_history(self, node=None) -> List[Dict[str, Any]]:
         """
         获取交易历史
         
+        Args:
+            node: 节点实例（可选）
+            
         Returns:
             List[Dict[str, Any]]: 交易历史列表
         """
+        # 如果提供了节点，从区块链存储中获取交易历史
+        if node and hasattr(node, 'blockchain_storage'):
+            return node.blockchain_storage.get_transaction_history(self.address, node.node_id)
+        
+        # 否则返回内存中的交易历史
         return [tx.to_dict() for tx in self.transaction_history]
     
     def export_public_key(self) -> str:
@@ -357,7 +376,105 @@ class Wallet:
             if tx.sender == self.address:
                 balance -= (tx.amount + tx.fee)
         
+        # 减去已质押的金额
+        balance -= self.staked_amount
+        
         return balance
+    
+    def stake_tokens(self, amount: float, node) -> bool:
+        """
+        质押代币
+        
+        Args:
+            amount: 质押金额
+            node: 节点实例
+            
+        Returns:
+            bool: 质押是否成功
+        """
+        # if amount <= 0:
+        #     print("质押金额必须大于0")
+        #     return False
+        
+        # 检查余额
+        available_balance = self.get_balance(node)
+        if available_balance < amount:
+            print(f"可用余额不足: {available_balance} < {amount}")
+            return False
+        
+        # 设置节点ID为钱包地址
+        node.node_id = self.address
+        
+        # 质押代币
+        if node.stake(amount):
+            # 更新钱包的质押金额
+            self.staked_amount += amount
+            # 保存钱包
+            self._save_wallet()
+            print(f"已质押 {amount} 代币，总质押: {self.staked_amount}")
+            return True
+        else:
+            print("质押失败")
+            return False
+    
+    def unstake_tokens(self, amount: float, node) -> bool:
+        """
+        取消质押
+        
+        Args:
+            amount: 取消质押的金额
+            node: 节点实例
+            
+        Returns:
+            bool: 取消质押是否成功
+        """
+        if amount <= 0:
+            print("取消质押金额必须大于0")
+            return False
+        
+        if amount > self.staked_amount:
+            print(f"质押金额不足: {self.staked_amount} < {amount}")
+            return False
+        
+        # 设置节点ID为钱包地址
+        node.node_id = self.address
+        
+        # 取消质押
+        if node.unstake(amount):
+            # 更新钱包的质押金额
+            self.staked_amount -= amount
+            # 保存钱包
+            self._save_wallet()
+            print(f"已取消质押 {amount} 代币，剩余质押: {self.staked_amount}")
+            return True
+        else:
+            print("取消质押失败")
+            return False
+    
+    def get_staked_amount(self) -> float:
+        """
+        获取质押金额
+        
+        Returns:
+            float: 质押金额
+        """
+        return self.staked_amount
+    
+    def get_validator_info(self, node) -> Optional[Dict]:
+        """
+        获取验证者信息
+        
+        Args:
+            node: 节点实例
+            
+        Returns:
+            Optional[Dict]: 验证者信息，如果不是验证者则返回None
+        """
+        validators = node.get_validator_info()
+        for validator in validators:
+            if validator['address'] == self.address:
+                return validator
+        return None
 
 
 class WalletManager:

@@ -2,5 +2,7 @@
 
 # dependencies
 /node_modules
-__pycache__
+__pycache__/
 *.pyc
+wallets/
+blockchain_data/

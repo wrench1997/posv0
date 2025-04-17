@@ -208,10 +208,13 @@ class Blockchain:
         Returns:
             Block: 新创建的区块
         """
+        # 确保使用正确的索引
+        current_index = len(self.chain)
+        
         block = Block(
-            index=len(self.chain),
+            index=current_index,
             timestamp=time.time(),
-            transactions=self.pending_transactions,
+            transactions=self.pending_transactions.copy(),  # 使用副本避免引用问题
             previous_hash=self.get_latest_block().hash,
             validator=validator
         )
@@ -239,15 +242,7 @@ class Blockchain:
         return True
     
     def is_valid_block(self, block: Block) -> bool:
-        """
-        验证区块是否有效
-        
-        Args:
-            block: 要验证的区块
-            
-        Returns:
-            bool: 区块是否有效
-        """
+        """验证区块是否有效"""
         # 检查区块索引
         expected_index = len(self.chain)
         if block.index != expected_index:
@@ -270,7 +265,40 @@ class Blockchain:
                 print(f"交易无效: {transaction.transaction_id}")
                 return False
         
-        return True
+        return True  
+
+
+    def load_saved_chain(self, saved_chain):
+        """
+        Replace the current chain with a previously saved chain
+        
+        Args:
+            saved_chain: List of Block objects to replace the current chain
+            
+        Returns:
+            bool: Whether the chain was successfully loaded
+        """
+        # Validate the saved chain before replacing
+        original_chain = self.chain.copy()
+        
+        try:
+            # Replace the chain
+            self.chain = saved_chain
+            
+            # Verify the loaded chain is valid
+            if not self.is_chain_valid():
+                # If not valid, revert to the original chain
+                self.chain = original_chain
+                print("Loaded chain is invalid, reverting to original chain")
+                return False
+            
+            print(f"Successfully loaded saved chain with {len(self.chain)} blocks")
+            return True
+        except Exception as e:
+            # In case of any error, revert to the original chain
+            self.chain = original_chain
+            print(f"Error loading saved chain: {e}")
+            return False
     
     def is_chain_valid(self) -> bool:
         """

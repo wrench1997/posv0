@@ -1,4 +1,4 @@
-# demo.py
+
 
 import time
 import threading
@@ -6,12 +6,13 @@ import random
 import uuid
 from typing import List, Dict, Any
 
-from blockchain_core import Blockchain, Transaction
+from blockchain_core import Blockchain, Transaction,Block
 from p2p_network import P2PNode
 
 from pos_consensus import POSConsensus
 from mining_rewards import RewardCalculator, RewardDistributor
 from bill_hash import BillManager, Bill
+from blockchain_storage import BlockchainStorage
 
 class Node:
     """节点类，整合所有模块"""
@@ -35,7 +36,7 @@ class Node:
         self.blockchain = Blockchain()
         
         # 初始化P2P网络
-        self.p2p_node = P2PNode(host, port, node_id, self.blockchain)
+        self.p2p_node = P2PNode(host, port, node_id, self.blockchain, self)
         
         # 初始化POS共识机制
         self.pos_consensus = POSConsensus(self.blockchain)
@@ -52,9 +53,30 @@ class Node:
         
         # 质押金额
         self.staked_amount = 0.0
+        
+        # 添加区块链存储
+        self.blockchain_storage = BlockchainStorage()
+        
+        # 尝试加载已有区块链数据
+        loaded_blockchain = self.blockchain_storage.load_blockchain(node_id)
+        if loaded_blockchain:
+            # Instead of replacing the entire blockchain object, just load the chain
+            if self.blockchain.load_saved_chain(loaded_blockchain.chain):
+                print(f"Successfully loaded valid blockchain data, chain length: {len(self.blockchain.chain)}")
+                
+                # Also load pending transactions
+                self.blockchain.pending_transactions = loaded_blockchain.pending_transactions
+            else:
+                print("Loaded blockchain data is invalid, using new blockchain")
+
     
+    # 在 main.py 中的 Node 类的 start 方法中添加
+
     def start(self) -> None:
         """启动节点"""
+        # 确保区块链一致性
+        self.ensure_blockchain_consistency()
+        
         # 启动P2P网络
         self.p2p_node.start()
         
@@ -63,10 +85,66 @@ class Node:
         # 启动区块生成线程
         threading.Thread(target=self.block_generation_loop, daemon=True).start()
         
+        # 启动自动保存线程
+        threading.Thread(target=self.auto_save_loop, daemon=True).start()
+        
         print(f"节点 {self.node_id} 启动成功")
-    
+
+    def auto_save_loop(self) -> None:
+        """自动保存循环"""
+        save_interval = 300  # 5分钟保存一次
+        
+        while self.running:
+            time.sleep(save_interval)
+            if self.running:  # 再次检查，避免在关闭过程中保存
+                self.save_blockchain_data()
+                print(f"自动保存区块链数据完成，链长度: {len(self.blockchain.chain)}")
+
+    def auto_discover_nodes(self) -> None:
+        """自动发现网络中的节点"""
+        if not self.p2p_node or not self.p2p_node.peers:
+            print("节点未连接到网络，无法发现其他节点")
+            return
+        
+        self.p2p_node.auto_discover_nodes()
+
+    # 在 Node 类中添加验证工作量的方法
+    def verify_work(self, block: Block) -> bool:
+        """验证区块的工作量"""
+        # 如果验证者不在本地验证者列表中，但区块来自网络，尝试从网络同步验证者信息
+        if block.validator not in self.pos_consensus.validators:
+            # 尝试同步验证者信息
+            self.p2p_node.synchronize_validators()
+            
+            # 再次检查验证者
+            if block.validator not in self.pos_consensus.validators:
+                print(f"区块验证者 {block.validator} 不是有效的验证者")
+                return False
+        
+        # 获取验证者的质押信息
+        validator_stake = self.pos_consensus.stakes.get(block.validator)
+        if not validator_stake:
+            print(f"找不到验证者 {block.validator} 的质押信息")
+            return False
+        
+        # 验证质押金额是否满足最低要求
+        if validator_stake.amount < self.pos_consensus.min_stake_amount:
+            print(f"验证者 {block.validator} 的质押金额 {validator_stake.amount} 低于最低要求 {self.pos_consensus.min_stake_amount}")
+            return False
+        
+        # 验证区块哈希是否有效
+        if block.hash != block.calculate_hash():
+            print(f"区块哈希无效: {block.hash} != {block.calculate_hash()}")
+            return False
+        
+        print(f"区块 {block.index} 的工作量验证通过，验证者: {block.validator}, 质押金额: {validator_stake.amount}")
+        return True
+
     def stop(self) -> None:
         """停止节点"""
+        # 保存区块链数据
+        self.save_blockchain_data()
+        
         self.running = False
         self.p2p_node.stop()
         print(f"节点 {self.node_id} 已停止")
@@ -94,9 +172,9 @@ class Node:
         Returns:
             bool: 质押是否成功
         """
-        if amount <= 0:
-            print("质押金额必须大于0")
-            return False
+        # if amount <= 0:
+        #     print("质押金额必须大于0")
+        #     return False
         
         if amount > self.balance:
             print(f"余额不足: {self.balance} < {amount}")
@@ -118,9 +196,13 @@ class Node:
             self.balance += amount
             self.staked_amount -= amount
             print(f"节点 {self.node_id} 质押失败")
-        
+
+        # 如果成功成为验证者，广播验证者信息
+        if success and self.node_id in self.pos_consensus.validators:
+            self.p2p_node.broadcast_validator_info(self.staked_amount,self.pos_consensus)
         return success
-    
+
+
     def unstake(self, amount: float) -> bool:
         """
         取消质押
@@ -252,6 +334,13 @@ class Node:
                     new_block = self.pos_consensus.forge_block(self.node_id)
                     
                     if new_block:
+                        # 确保区块索引正确
+                        expected_index = len(self.blockchain.chain)
+                        if new_block.index != expected_index:
+                            print(f"区块索引不匹配，期望 {expected_index}，实际 {new_block.index}，重新设置索引")
+                            new_block.index = expected_index
+                            new_block.hash = new_block.calculate_hash()
+                        
                         # 添加奖励交易
                         self.reward_distributor.add_reward_transaction(new_block)
                         
@@ -265,6 +354,9 @@ class Node:
                             self.balance += reward
                             
                             print(f"节点 {self.node_id} 成功生成区块 {new_block.index}，获得奖励: {reward}")
+                            
+                            # 保存区块链数据
+                            self.save_blockchain_data()
                         else:
                             print(f"节点 {self.node_id} 添加区块失败")
                     else:
@@ -312,102 +404,44 @@ class Node:
             List[Dict]: 验证者信息列表
         """
         return self.pos_consensus.get_validator_info()
+    
+    # 添加保存区块链数据的方法
+    def save_blockchain_data(self) -> bool:
+        """保存区块链数据"""
+        return self.blockchain_storage.save_blockchain(self.blockchain, self.node_id)
 
 
-def run_demo():
-    """运行演示"""
-    print("启动区块链演示...")
-    
-    # 创建节点
-    nodes = []
-    for i in range(3):
-        node_id = f"Node_{i}"
-        host = "127.0.0.1"
-        port = 5002 + i
-        node = Node(node_id, host, port)
-        nodes.append(node)
-        node.start()
-        print(f"节点 {node_id} 启动，地址: {host}:{port}")
-    
-    # 连接节点
-    for i in range(1, 3):
-        nodes[i].connect_to_network("127.0.0.1", 5002)
-        print(f"节点 {nodes[i].node_id} 连接到节点 {nodes[0].node_id}")
-    
-    # 质押代币
-    for node in nodes:
-        time.sleep(1)
-        stake_amount = random.uniform(10, 50)
-        node.stake(stake_amount)
-    
-    # 创建一些交易
-    for _ in range(1):
-        sender_idx = random.randint(0, 2)
-        recipient_idx = random.randint(0, 2)
-        while recipient_idx == sender_idx:
-            recipient_idx = random.randint(0, 2)
+    def ensure_blockchain_consistency(self):
+        """确保区块链状态一致性"""
+        # 验证整个链
+        if not self.blockchain.is_chain_valid():
+            print("区块链状态不一致，尝试修复...")
+            # 尝试修复区块链
+            self.repair_blockchain()
+        else:
+            print("区块链状态一致")
+
+    def repair_blockchain(self):
+        """尝试修复区块链"""
+        # 找到最后一个有效区块
+        valid_chain_length = 0
+        for i in range(len(self.blockchain.chain)):
+            if i == 0 or (self.blockchain.chain[i].previous_hash == self.blockchain.chain[i-1].hash and 
+                        self.blockchain.chain[i].hash == self.blockchain.chain[i].calculate_hash()):
+                valid_chain_length = i + 1
+            else:
+                break
         
-        amount = random.uniform(1, 5)
-        nodes[sender_idx].create_transaction(nodes[recipient_idx].node_id, amount)
-    
-    # 创建并支付账单
-    for _ in range(1):
-        payer_idx = random.randint(0, 2)
-        payee_idx = random.randint(0, 2)
-        while payee_idx == payer_idx:
-            payee_idx = random.randint(0, 2)
-        
-        amount = random.uniform(1, 3)
-        description = f"Payment for service #{uuid.uuid4().hex[:8]}"
-        
-        bill = nodes[payer_idx].create_bill(nodes[payee_idx].node_id, amount, description)
-        nodes[payer_idx].pay_bill(bill)
-    
-    # 等待一段时间，让区块生成
-    print("等待区块生成...")
-    time.sleep(30)
-    
-    # 显示节点信息
-    for node in nodes:
-        print(f"\n节点 {node.node_id} 信息:")
-        print(f"余额: {node.get_balance()}")
-        print(f"质押金额: {node.get_staked_amount()}")
-        print(f"区块链信息: {node.get_blockchain_info()}")
-        print(f"验证者信息: {node.get_validator_info()}")
-
-
-
-    for _ in range(1):
-        payer_idx = random.randint(0, 2)
-        payee_idx = random.randint(0, 2)
-        while payee_idx == payer_idx:
-            payee_idx = random.randint(0, 2)
-        
-        amount = random.uniform(1, 3)
-        description = f"Payment for service #{uuid.uuid4().hex[:8]}"
-        
-        bill = nodes[payer_idx].create_bill(nodes[payee_idx].node_id, amount, description)
-        nodes[payer_idx].pay_bill(bill)
-
-    # 等待一段时间，让区块生成
-    print("等待区块生成...")
-    time.sleep(30)
-    
-    # 显示节点信息
-    for node in nodes:
-        print(f"\n节点 {node.node_id} 信息:")
-        print(f"余额: {node.get_balance()}")
-        print(f"质押金额: {node.get_staked_amount()}")
-        print(f"区块链信息: {node.get_blockchain_info()}")
-        print(f"验证者信息: {node.get_validator_info()}")        
-
-    # 停止节点
-    for node in nodes:
-        node.stop()
-    
-    print("演示结束")
-    exit(0)
-
-
-if __name__ == "__main__":
-    run_demo()
+        if valid_chain_length < len(self.blockchain.chain):
+            print(f"截断区块链至长度 {valid_chain_length}")
+            # 保存被移除区块中的交易
+            for block in self.blockchain.chain[valid_chain_length:]:
+                for tx in block.transactions:
+                    if tx.sender != "COINBASE" and not any(t.transaction_id == tx.transaction_id for t in self.blockchain.pending_transactions):
+                        self.blockchain.pending_transactions.append(tx)
+            
+            # 截断链
+            self.blockchain.chain = self.blockchain.chain[:valid_chain_length]
+            
+            # 保存修复后的区块链
+            self.save_blockchain_data()
