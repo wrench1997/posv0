@@ -1,5 +1,3 @@
-# wallet_gui.py
-
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
 import threading
@@ -27,7 +25,10 @@ class WalletGUI:
         """
         self.root = root
         self.root.title("区块链钱包")
-        self.root.geometry("1280x1024")
+        
+        # 设置初始窗口大小，但允许调整
+        self.root.geometry("1280x720")
+        self.root.minsize(800, 600)  # 设置最小窗口大小
         self.root.resizable(True, True)
         
         # 初始化钱包管理器
@@ -48,107 +49,148 @@ class WalletGUI:
         # 启动自动更新线程
         self.running = True
         threading.Thread(target=self.auto_update, daemon=True).start()
+        
+        # 绑定窗口大小变化事件
+        self.root.bind("<Configure>", self.on_window_resize)
+    
+    def on_window_resize(self, event):
+        """处理窗口大小变化事件"""
+        # 只处理根窗口的大小变化
+        if event.widget == self.root:
+            # 调整主框架的大小
+            self.main_frame.configure(width=event.width-20, height=event.height-40)
+            
+            # 调整左右框架的宽度比例
+            self.main_frame.update()
+            frame_width = self.main_frame.winfo_width()
+            self.left_frame.configure(width=frame_width * 0.45)
+            self.right_frame.configure(width=frame_width * 0.45)
     
     def create_widgets(self):
         """创建UI组件"""
         # 创建主框架
-        main_frame = ttk.Frame(self.root, padding=10)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        self.main_frame = ttk.Frame(self.root, padding=10)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
         
         # 创建左侧面板（钱包列表和节点控制）
-        left_frame = ttk.LabelFrame(main_frame, text="钱包和节点", padding=10)
-        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.left_frame = ttk.LabelFrame(self.main_frame, text="钱包和节点", padding=10)
+        self.left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # 创建右侧面板（交易和账单）
-        right_frame = ttk.LabelFrame(main_frame, text="交易和账单", padding=10)
-        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.right_frame = ttk.LabelFrame(self.main_frame, text="交易和账单", padding=10)
+        self.right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # 左侧面板内容
         # 钱包列表
-        wallet_frame = ttk.LabelFrame(left_frame, text="钱包列表", padding=10)
+        wallet_frame = ttk.LabelFrame(self.left_frame, text="钱包列表", padding=10)
         wallet_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
         # 钱包列表视图
-        self.wallet_tree = ttk.Treeview(wallet_frame, columns=("name", "address"), show="headings")
+        wallet_tree_frame = ttk.Frame(wallet_frame)
+        wallet_tree_frame.pack(fill=tk.BOTH, expand=True)
+        
+        self.wallet_tree = ttk.Treeview(wallet_tree_frame, columns=("name", "address"), show="headings")
         self.wallet_tree.heading("name", text="名称")
         self.wallet_tree.heading("address", text="地址")
-        self.wallet_tree.column("name", width=100)
-        self.wallet_tree.column("address", width=200)
-        self.wallet_tree.pack(fill=tk.BOTH, expand=True)
+        self.wallet_tree.column("name", width=100, minwidth=80)
+        self.wallet_tree.column("address", width=200, minwidth=150)
+        self.wallet_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.wallet_tree.bind("<Double-1>", self.on_wallet_select)
+        
+        # 添加滚动条
+        wallet_scrollbar = ttk.Scrollbar(wallet_tree_frame, orient="vertical", command=self.wallet_tree.yview)
+        wallet_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.wallet_tree.configure(yscrollcommand=wallet_scrollbar.set)
         
         # 钱包操作按钮
         wallet_btn_frame = ttk.Frame(wallet_frame)
         wallet_btn_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Button(wallet_btn_frame, text="创建钱包", command=self.create_wallet).pack(side=tk.LEFT, padx=5)
-        ttk.Button(wallet_btn_frame, text="刷新列表", command=self.update_wallet_list).pack(side=tk.LEFT, padx=5)
-        ttk.Button(wallet_btn_frame, text="导出钱包", command=self.export_wallet).pack(side=tk.LEFT, padx=5)
-        ttk.Button(wallet_btn_frame, text="导入钱包", command=self.import_wallet).pack(side=tk.LEFT, padx=5)
+        # 使用网格布局来排列按钮，确保在窗口缩小时仍然可见
+        ttk.Button(wallet_btn_frame, text="创建钱包", command=self.create_wallet).grid(row=0, column=0, padx=5, pady=2, sticky="ew")
+        ttk.Button(wallet_btn_frame, text="刷新列表", command=self.update_wallet_list).grid(row=0, column=1, padx=5, pady=2, sticky="ew")
+        ttk.Button(wallet_btn_frame, text="导出钱包", command=self.export_wallet).grid(row=1, column=0, padx=5, pady=2, sticky="ew")
+        ttk.Button(wallet_btn_frame, text="导入钱包", command=self.import_wallet).grid(row=1, column=1, padx=5, pady=2, sticky="ew")
+        
+        # 配置网格列权重，使按钮能够均匀分布
+        wallet_btn_frame.columnconfigure(0, weight=1)
+        wallet_btn_frame.columnconfigure(1, weight=1)
         
         # 节点控制
-        node_frame = ttk.LabelFrame(left_frame, text="节点控制", padding=10)
+        node_frame = ttk.LabelFrame(self.left_frame, text="节点控制", padding=10)
         node_frame.pack(fill=tk.BOTH, pady=5)
         
         # 节点状态
         self.node_status_var = tk.StringVar(value="节点未启动")
-        ttk.Label(node_frame, textvariable=self.node_status_var).pack(fill=tk.X, pady=5)
+        ttk.Label(node_frame, textvariable=self.node_status_var, wraplength=350).pack(fill=tk.X, pady=5)
         
         # 节点操作按钮
         node_btn_frame = ttk.Frame(node_frame)
         node_btn_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Button(node_btn_frame, text="启动节点", command=self.start_node).pack(side=tk.LEFT, padx=5)
-        ttk.Button(node_btn_frame, text="连接网络", command=self.connect_to_network).pack(side=tk.LEFT, padx=5)
-        ttk.Button(node_btn_frame, text="查看网络", command=self.show_network_info).pack(side=tk.LEFT, padx=5)
+        # 使用网格布局
+        ttk.Button(node_btn_frame, text="启动节点", command=self.start_node).grid(row=0, column=0, padx=5, pady=2, sticky="ew")
+        ttk.Button(node_btn_frame, text="连接网络", command=self.connect_to_network).grid(row=0, column=1, padx=5, pady=2, sticky="ew")
+        ttk.Button(node_btn_frame, text="查看网络", command=self.show_network_info).grid(row=0, column=2, padx=5, pady=2, sticky="ew")
+        
+        # 配置网格列权重
+        node_btn_frame.columnconfigure(0, weight=1)
+        node_btn_frame.columnconfigure(1, weight=1)
+        node_btn_frame.columnconfigure(2, weight=1)
         
         # 区块链信息
-        blockchain_frame = ttk.LabelFrame(left_frame, text="区块链信息", padding=10)
+        blockchain_frame = ttk.LabelFrame(self.left_frame, text="区块链信息", padding=10)
         blockchain_frame.pack(fill=tk.BOTH, pady=5)
         
         # 区块链状态
         self.blockchain_info_var = tk.StringVar(value="未连接到区块链")
-        ttk.Label(blockchain_frame, textvariable=self.blockchain_info_var).pack(fill=tk.X, pady=5)
+        ttk.Label(blockchain_frame, textvariable=self.blockchain_info_var, wraplength=350).pack(fill=tk.X, pady=5)
         
         # 区块链操作按钮
         blockchain_btn_frame = ttk.Frame(blockchain_frame)
         blockchain_btn_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Button(blockchain_btn_frame, text="查看详情", command=self.show_blockchain_details).pack(side=tk.LEFT, padx=5)
+        ttk.Button(blockchain_btn_frame, text="查看详情", command=self.show_blockchain_details).pack(fill=tk.X, padx=5)
         
         # 质押控制
-        stake_frame = ttk.LabelFrame(left_frame, text="质押控制", padding=10)
+        stake_frame = ttk.LabelFrame(self.left_frame, text="质押控制", padding=10)
         stake_frame.pack(fill=tk.BOTH, pady=5)
         
         # 质押状态
         self.stake_info_var = tk.StringVar(value="未质押")
-        ttk.Label(stake_frame, textvariable=self.stake_info_var).pack(fill=tk.X, pady=5)
+        ttk.Label(stake_frame, textvariable=self.stake_info_var, wraplength=350).pack(fill=tk.X, pady=5)
         
         # 质押操作按钮
         stake_btn_frame = ttk.Frame(stake_frame)
         stake_btn_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Button(stake_btn_frame, text="质押代币", command=self.stake_tokens).pack(side=tk.LEFT, padx=5)
-        ttk.Button(stake_btn_frame, text="取消质押", command=self.unstake_tokens).pack(side=tk.LEFT, padx=5)
-        ttk.Button(stake_btn_frame, text="验证者信息", command=self.show_validator_info).pack(side=tk.LEFT, padx=5)
+        # 使用网格布局
+        ttk.Button(stake_btn_frame, text="质押代币", command=self.stake_tokens).grid(row=0, column=0, padx=5, pady=2, sticky="ew")
+        ttk.Button(stake_btn_frame, text="取消质押", command=self.unstake_tokens).grid(row=0, column=1, padx=5, pady=2, sticky="ew")
+        ttk.Button(stake_btn_frame, text="验证者信息", command=self.show_validator_info).grid(row=0, column=2, padx=5, pady=2, sticky="ew")
+        
+        # 配置网格列权重
+        stake_btn_frame.columnconfigure(0, weight=1)
+        stake_btn_frame.columnconfigure(1, weight=1)
+        stake_btn_frame.columnconfigure(2, weight=1)
         
         # 右侧面板内容
         # 当前钱包信息
-        wallet_info_frame = ttk.LabelFrame(right_frame, text="当前钱包", padding=10)
+        wallet_info_frame = ttk.LabelFrame(self.right_frame, text="当前钱包", padding=10)
         wallet_info_frame.pack(fill=tk.X, pady=5)
         
         self.current_wallet_var = tk.StringVar(value="未选择钱包")
-        ttk.Label(wallet_info_frame, textvariable=self.current_wallet_var).pack(fill=tk.X, pady=5)
+        ttk.Label(wallet_info_frame, textvariable=self.current_wallet_var, wraplength=350).pack(fill=tk.X, pady=5)
         
         self.balance_var = tk.StringVar(value="余额: 0.0")
-        ttk.Label(wallet_info_frame, textvariable=self.balance_var).pack(fill=tk.X, pady=5)
+        ttk.Label(wallet_info_frame, textvariable=self.balance_var, wraplength=350).pack(fill=tk.X, pady=5)
         
         # 交易操作
-        transaction_frame = ttk.LabelFrame(right_frame, text="创建交易", padding=10)
+        transaction_frame = ttk.LabelFrame(self.right_frame, text="创建交易", padding=10)
         transaction_frame.pack(fill=tk.X, pady=5)
         
         ttk.Label(transaction_frame, text="接收方地址:").pack(anchor=tk.W, pady=2)
-        self.recipient_entry = ttk.Entry(transaction_frame, width=50)
+        self.recipient_entry = ttk.Entry(transaction_frame)
         self.recipient_entry.pack(fill=tk.X, pady=2)
         
         ttk.Label(transaction_frame, text="金额:").pack(anchor=tk.W, pady=2)
@@ -160,39 +202,54 @@ class WalletGUI:
         self.fee_entry.insert(0, "0.001")
         self.fee_entry.pack(fill=tk.X, pady=2)
         
-        ttk.Button(transaction_frame, text="创建交易", command=self.create_transaction).pack(anchor=tk.E, pady=5)
+        ttk.Button(transaction_frame, text="创建交易", command=self.create_transaction).pack(fill=tk.X, pady=5)
         
         # 账单操作
-        bill_frame = ttk.LabelFrame(right_frame, text="账单操作", padding=10)
+        bill_frame = ttk.LabelFrame(self.right_frame, text="账单操作", padding=10)
         bill_frame.pack(fill=tk.X, pady=5)
         
         bill_btn_frame = ttk.Frame(bill_frame)
         bill_btn_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Button(bill_btn_frame, text="创建账单", command=self.create_bill).pack(side=tk.LEFT, padx=5)
-        ttk.Button(bill_btn_frame, text="支付账单", command=self.pay_bill).pack(side=tk.LEFT, padx=5)
-        ttk.Button(bill_btn_frame, text="查看账单", command=self.show_bills).pack(side=tk.LEFT, padx=5)
+        # 使用网格布局
+        ttk.Button(bill_btn_frame, text="创建账单", command=self.create_bill).grid(row=0, column=0, padx=5, pady=2, sticky="ew")
+        ttk.Button(bill_btn_frame, text="支付账单", command=self.pay_bill).grid(row=0, column=1, padx=5, pady=2, sticky="ew")
+        ttk.Button(bill_btn_frame, text="查看账单", command=self.show_bills).grid(row=0, column=2, padx=5, pady=2, sticky="ew")
+        
+        # 配置网格列权重
+        bill_btn_frame.columnconfigure(0, weight=1)
+        bill_btn_frame.columnconfigure(1, weight=1)
+        bill_btn_frame.columnconfigure(2, weight=1)
         
         # 交易历史
-        history_frame = ttk.LabelFrame(right_frame, text="交易历史", padding=10)
+        history_frame = ttk.LabelFrame(self.right_frame, text="交易历史", padding=10)
         history_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
+        # 创建包含树形视图和滚动条的框架
+        history_tree_frame = ttk.Frame(history_frame)
+        history_tree_frame.pack(fill=tk.BOTH, expand=True)
+        
         # 交易历史列表
-        self.history_tree = ttk.Treeview(history_frame, columns=("id", "type", "amount", "time"), show="headings")
+        self.history_tree = ttk.Treeview(history_tree_frame, columns=("id", "type", "amount", "time"), show="headings")
         self.history_tree.heading("id", text="交易ID")
         self.history_tree.heading("type", text="类型")
         self.history_tree.heading("amount", text="金额")
         self.history_tree.heading("time", text="时间")
-        self.history_tree.column("id", width=100)
-        self.history_tree.column("type", width=50)
-        self.history_tree.column("amount", width=80)
-        self.history_tree.column("time", width=150)
-        self.history_tree.pack(fill=tk.BOTH, expand=True)
+        self.history_tree.column("id", width=100, minwidth=80)
+        self.history_tree.column("type", width=80, minwidth=60)
+        self.history_tree.column("amount", width=80, minwidth=60)
+        self.history_tree.column("time", width=150, minwidth=120)
+        self.history_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # 添加滚动条
-        history_scrollbar = ttk.Scrollbar(history_frame, orient="vertical", command=self.history_tree.yview)
-        history_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.history_tree.configure(yscrollcommand=history_scrollbar.set)
+        # 添加垂直滚动条
+        history_scrollbar_y = ttk.Scrollbar(history_tree_frame, orient="vertical", command=self.history_tree.yview)
+        history_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        self.history_tree.configure(yscrollcommand=history_scrollbar_y.set)
+        
+        # 添加水平滚动条
+        history_scrollbar_x = ttk.Scrollbar(history_frame, orient="horizontal", command=self.history_tree.xview)
+        history_scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
+        self.history_tree.configure(xscrollcommand=history_scrollbar_x.set)
         
         # 状态栏
         self.status_var = tk.StringVar(value="就绪")
@@ -355,12 +412,12 @@ class WalletGUI:
         # 添加输入框
         ttk.Label(dialog, text="请输入主机地址:").pack(pady=5)
         host_entry = ttk.Entry(dialog)
-        host_entry.pack(pady=5)
+        host_entry.pack(pady=5, fill=tk.X, padx=10)
         host_entry.insert(0, "127.0.0.1")
         
         ttk.Label(dialog, text="请输入端口号:").pack(pady=5)
         port_entry = ttk.Entry(dialog)
-        port_entry.pack(pady=5)
+        port_entry.pack(pady=5, fill=tk.X, padx=10)
         port_entry.insert(0, "5005")
         
         # 确认按钮
@@ -397,7 +454,7 @@ class WalletGUI:
             except ValueError:
                 messagebox.showerror("错误", "端口必须是数字")
         
-        ttk.Button(dialog, text="确认", command=on_confirm).pack(pady=10)
+        ttk.Button(dialog, text="确认", command=on_confirm).pack(pady=10, fill=tk.X, padx=10)
 
     
     def connect_to_network(self):
@@ -535,11 +592,14 @@ class WalletGUI:
         network_dialog.attributes('-topmost', True)  # 设置为最顶层窗口
         
         # 添加文本框
-        text = tk.Text(network_dialog, wrap=tk.WORD)
-        text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        text_frame = ttk.Frame(network_dialog)
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        text = tk.Text(text_frame, wrap=tk.WORD)
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         # 添加滚动条
-        scrollbar = ttk.Scrollbar(text, command=text.yview)
+        scrollbar = ttk.Scrollbar(text_frame, command=text.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         text.config(yscrollcommand=scrollbar.set)
         
@@ -617,6 +677,7 @@ class WalletGUI:
         details_dialog = tk.Toplevel(self.root)
         details_dialog.title("区块链详情")
         details_dialog.geometry("700x500")
+        details_dialog.minsize(600, 400)
         
         # 创建选项卡
         notebook = ttk.Notebook(details_dialog)
@@ -626,24 +687,33 @@ class WalletGUI:
         blocks_frame = ttk.Frame(notebook)
         notebook.add(blocks_frame, text="区块")
         
+        # 创建包含树形视图和滚动条的框架
+        blocks_tree_frame = ttk.Frame(blocks_frame)
+        blocks_tree_frame.pack(fill=tk.BOTH, expand=True)
+        
         # 区块列表
-        blocks_tree = ttk.Treeview(blocks_frame, columns=("index", "hash", "validator", "txs", "time"), show="headings")
+        blocks_tree = ttk.Treeview(blocks_tree_frame, columns=("index", "hash", "validator", "txs", "time"), show="headings")
         blocks_tree.heading("index", text="索引")
         blocks_tree.heading("hash", text="哈希")
         blocks_tree.heading("validator", text="验证者")
         blocks_tree.heading("txs", text="交易数")
         blocks_tree.heading("time", text="时间")
-        blocks_tree.column("index", width=50)
-        blocks_tree.column("hash", width=200)
-        blocks_tree.column("validator", width=150)
-        blocks_tree.column("txs", width=70)
-        blocks_tree.column("time", width=150)
-        blocks_tree.pack(fill=tk.BOTH, expand=True)
+        blocks_tree.column("index", width=50, minwidth=40)
+        blocks_tree.column("hash", width=200, minwidth=150)
+        blocks_tree.column("validator", width=150, minwidth=120)
+        blocks_tree.column("txs", width=70, minwidth=50)
+        blocks_tree.column("time", width=150, minwidth=120)
+        blocks_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # 添加滚动条
-        blocks_scrollbar = ttk.Scrollbar(blocks_frame, orient="vertical", command=blocks_tree.yview)
-        blocks_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        blocks_tree.configure(yscrollcommand=blocks_scrollbar.set)
+        # 添加垂直滚动条
+        blocks_scrollbar_y = ttk.Scrollbar(blocks_tree_frame, orient="vertical", command=blocks_tree.yview)
+        blocks_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        blocks_tree.configure(yscrollcommand=blocks_scrollbar_y.set)
+        
+        # 添加水平滚动条
+        blocks_scrollbar_x = ttk.Scrollbar(blocks_frame, orient="horizontal", command=blocks_tree.xview)
+        blocks_scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
+        blocks_tree.configure(xscrollcommand=blocks_scrollbar_x.set)
         
         # 填充区块数据
         for block in self.node.blockchain.chain:
@@ -660,24 +730,33 @@ class WalletGUI:
         pending_frame = ttk.Frame(notebook)
         notebook.add(pending_frame, text="待处理交易")
         
+        # 创建包含树形视图和滚动条的框架
+        pending_tree_frame = ttk.Frame(pending_frame)
+        pending_tree_frame.pack(fill=tk.BOTH, expand=True)
+        
         # 待处理交易列表
-        pending_tree = ttk.Treeview(pending_frame, columns=("id", "sender", "recipient", "amount", "fee"), show="headings")
+        pending_tree = ttk.Treeview(pending_tree_frame, columns=("id", "sender", "recipient", "amount", "fee"), show="headings")
         pending_tree.heading("id", text="交易ID")
         pending_tree.heading("sender", text="发送方")
         pending_tree.heading("recipient", text="接收方")
         pending_tree.heading("amount", text="金额")
         pending_tree.heading("fee", text="费用")
-        pending_tree.column("id", width=100)
-        pending_tree.column("sender", width=150)
-        pending_tree.column("recipient", width=150)
-        pending_tree.column("amount", width=70)
-        pending_tree.column("fee", width=70)
-        pending_tree.pack(fill=tk.BOTH, expand=True)
+        pending_tree.column("id", width=100, minwidth=80)
+        pending_tree.column("sender", width=150, minwidth=120)
+        pending_tree.column("recipient", width=150, minwidth=120)
+        pending_tree.column("amount", width=70, minwidth=50)
+        pending_tree.column("fee", width=70, minwidth=50)
+        pending_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # 添加滚动条
-        pending_scrollbar = ttk.Scrollbar(pending_frame, orient="vertical", command=pending_tree.yview)
-        pending_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        pending_tree.configure(yscrollcommand=pending_scrollbar.set)
+        # 添加垂直滚动条
+        pending_scrollbar_y = ttk.Scrollbar(pending_tree_frame, orient="vertical", command=pending_tree.yview)
+        pending_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        pending_tree.configure(yscrollcommand=pending_scrollbar_y.set)
+        
+        # 添加水平滚动条
+        pending_scrollbar_x = ttk.Scrollbar(pending_frame, orient="horizontal", command=pending_tree.xview)
+        pending_scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
+        pending_tree.configure(xscrollcommand=pending_scrollbar_x.set)
         
         # 填充待处理交易数据
         for tx in self.node.blockchain.pending_transactions:
@@ -705,6 +784,7 @@ class WalletGUI:
         validator_dialog = tk.Toplevel(self.root)
         validator_dialog.title("验证者信息")
         validator_dialog.geometry("700x500")
+        validator_dialog.minsize(600, 400)
         
         # 创建选项卡
         notebook = ttk.Notebook(validator_dialog)
@@ -714,24 +794,33 @@ class WalletGUI:
         validators_frame = ttk.Frame(notebook)
         notebook.add(validators_frame, text="验证者列表")
         
+        # 创建包含树形视图和滚动条的框架
+        validator_tree_frame = ttk.Frame(validators_frame)
+        validator_tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
         # 验证者列表
-        validator_tree = ttk.Treeview(validators_frame, columns=("address", "stake", "age", "weight", "blocks"), show="headings")
+        validator_tree = ttk.Treeview(validator_tree_frame, columns=("address", "stake", "age", "weight", "blocks"), show="headings")
         validator_tree.heading("address", text="地址")
         validator_tree.heading("stake", text="质押金额")
         validator_tree.heading("age", text="质押年龄(天)")
         validator_tree.heading("weight", text="权重")
         validator_tree.heading("blocks", text="生成区块数")
-        validator_tree.column("address", width=200)
-        validator_tree.column("stake", width=100)
-        validator_tree.column("age", width=100)
-        validator_tree.column("weight", width=100)
-        validator_tree.column("blocks", width=100)
-        validator_tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        validator_tree.column("address", width=200, minwidth=150)
+        validator_tree.column("stake", width=100, minwidth=80)
+        validator_tree.column("age", width=100, minwidth=80)
+        validator_tree.column("weight", width=100, minwidth=80)
+        validator_tree.column("blocks", width=100, minwidth=80)
+        validator_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # 添加滚动条
-        validator_scrollbar = ttk.Scrollbar(validators_frame, orient="vertical", command=validator_tree.yview)
-        validator_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        validator_tree.configure(yscrollcommand=validator_scrollbar.set)
+        # 添加垂直滚动条
+        validator_scrollbar_y = ttk.Scrollbar(validator_tree_frame, orient="vertical", command=validator_tree.yview)
+        validator_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        validator_tree.configure(yscrollcommand=validator_scrollbar_y.set)
+        
+        # 添加水平滚动条
+        validator_scrollbar_x = ttk.Scrollbar(validators_frame, orient="horizontal", command=validator_tree.xview)
+        validator_scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
+        validator_tree.configure(xscrollcommand=validator_scrollbar_x.set)
         
         # 统计每个验证者生成的区块数
         validator_blocks = {}
@@ -809,28 +898,47 @@ class WalletGUI:
     预计每日收益: {expected_reward:.6f}
                 """
                 
-                info_label = ttk.Label(info_frame, text=info_text, justify=tk.LEFT)
-                info_label.pack(padx=10, pady=10)
+                # 使用滚动文本框显示信息
+                info_text_frame = ttk.Frame(info_frame)
+                info_text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+                
+                info_text_widget = tk.Text(info_text_frame, wrap=tk.WORD, height=10)
+                info_text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                info_text_widget.insert(tk.END, info_text)
+                info_text_widget.config(state=tk.DISABLED)
+                
+                info_scrollbar = ttk.Scrollbar(info_text_frame, command=info_text_widget.yview)
+                info_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+                info_text_widget.config(yscrollcommand=info_scrollbar.set)
                 
                 # 添加区块生成历史
                 history_frame = ttk.LabelFrame(current_frame, text="区块生成历史", padding=10)
                 history_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
                 
-                history_tree = ttk.Treeview(history_frame, columns=("index", "time", "txs", "reward"), show="headings")
+                # 创建包含树形视图和滚动条的框架
+                history_tree_frame = ttk.Frame(history_frame)
+                history_tree_frame.pack(fill=tk.BOTH, expand=True)
+                
+                history_tree = ttk.Treeview(history_tree_frame, columns=("index", "time", "txs", "reward"), show="headings")
                 history_tree.heading("index", text="区块索引")
                 history_tree.heading("time", text="生成时间")
                 history_tree.heading("txs", text="交易数")
                 history_tree.heading("reward", text="奖励")
-                history_tree.column("index", width=80)
-                history_tree.column("time", width=150)
-                history_tree.column("txs", width=80)
-                history_tree.column("reward", width=100)
-                history_tree.pack(fill=tk.BOTH, expand=True)
+                history_tree.column("index", width=80, minwidth=60)
+                history_tree.column("time", width=150, minwidth=120)
+                history_tree.column("txs", width=80, minwidth=60)
+                history_tree.column("reward", width=100, minwidth=80)
+                history_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
                 
-                # 添加滚动条
-                history_scrollbar = ttk.Scrollbar(history_frame, orient="vertical", command=history_tree.yview)
-                history_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-                history_tree.configure(yscrollcommand=history_scrollbar.set)
+                # 添加垂直滚动条
+                history_scrollbar_y = ttk.Scrollbar(history_tree_frame, orient="vertical", command=history_tree.yview)
+                history_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+                history_tree.configure(yscrollcommand=history_scrollbar_y.set)
+                
+                # 添加水平滚动条
+                history_scrollbar_x = ttk.Scrollbar(history_frame, orient="horizontal", command=history_tree.xview)
+                history_scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
+                history_tree.configure(xscrollcommand=history_scrollbar_x.set)
                 
                 # 填充区块生成历史
                 for block in reversed(self.node.blockchain.chain):
@@ -885,30 +993,47 @@ class WalletGUI:
     目标区块时间: {self.node.pos_consensus.block_time} 秒
             """
             
-            network_label = ttk.Label(network_info_frame, text=network_info, justify=tk.LEFT)
-            network_label.pack(padx=10, pady=10)
+            # 使用滚动文本框显示信息
+            network_text_frame = ttk.Frame(network_info_frame)
+            network_text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            network_text_widget = tk.Text(network_text_frame, wrap=tk.WORD, height=10)
+            network_text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            network_text_widget.insert(tk.END, network_info)
+            network_text_widget.config(state=tk.DISABLED)
+            
+            network_scrollbar = ttk.Scrollbar(network_text_frame, command=network_text_widget.yview)
+            network_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            network_text_widget.config(yscrollcommand=network_scrollbar.set)
             
             # 添加验证者分布图
             # 表
             chart_frame = ttk.LabelFrame(network_frame, text="验证者权重分布", padding=10)
             chart_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
             
-            # 这里可以添加图表，但由于tkinter本身不支持图表，
-            # 您可能需要使用matplotlib或其他图表库
-            # 以下是一个简单的文本表示
-            chart_text = "验证者权重分布:\n\n"
+            # 创建滚动文本框显示图表
+            chart_text_frame = ttk.Frame(chart_frame)
+            chart_text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            chart_text_widget = tk.Text(chart_text_frame, wrap=tk.WORD, font=("Courier", 10))
+            chart_text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             
             # 按权重排序
             sorted_validators = sorted(validators, key=lambda v: v['weight'], reverse=True)
             
+            chart_text = "验证者权重分布:\n\n"
             for validator in sorted_validators:
                 weight_percent = (validator['weight'] / sum(v['weight'] for v in validators)) * 100 if validators else 0
                 bars = int(weight_percent / 2)  # 每2%一个字符
                 chart_text += f"{validator['address'][:10]}...: {validator['weight']:.2f} ({weight_percent:.2f}%) "
                 chart_text += "█" * bars + "\n"
             
-            chart_label = ttk.Label(chart_frame, text=chart_text, justify=tk.LEFT, font=("Courier", 10))
-            chart_label.pack(padx=10, pady=10)
+            chart_text_widget.insert(tk.END, chart_text)
+            chart_text_widget.config(state=tk.DISABLED)
+            
+            chart_scrollbar = ttk.Scrollbar(chart_text_frame, command=chart_text_widget.yview)
+            chart_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            chart_text_widget.config(yscrollcommand=chart_scrollbar.set)
     
     def show_bills(self):
         """显示账单"""
@@ -926,25 +1051,35 @@ class WalletGUI:
         bill_dialog = tk.Toplevel(self.root)
         bill_dialog.title("账单列表")
         bill_dialog.geometry("700x400")
+        bill_dialog.minsize(600, 300)
+        
+        # 创建包含树形视图和滚动条的框架
+        bill_tree_frame = ttk.Frame(bill_dialog)
+        bill_tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # 账单列表
-        bill_tree = ttk.Treeview(bill_dialog, columns=("id", "payer", "payee", "amount", "description"), show="headings")
+        bill_tree = ttk.Treeview(bill_tree_frame, columns=("id", "payer", "payee", "amount", "description"), show="headings")
         bill_tree.heading("id", text="账单ID")
         bill_tree.heading("payer", text="付款方")
         bill_tree.heading("payee", text="收款方")
         bill_tree.heading("amount", text="金额")
         bill_tree.heading("description", text="描述")
-        bill_tree.column("id", width=100)
-        bill_tree.column("payer", width=150)
-        bill_tree.column("payee", width=150)
-        bill_tree.column("amount", width=70)
-        bill_tree.column("description", width=200)
-        bill_tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        bill_tree.column("id", width=100, minwidth=80)
+        bill_tree.column("payer", width=150, minwidth=120)
+        bill_tree.column("payee", width=150, minwidth=120)
+        bill_tree.column("amount", width=70, minwidth=50)
+        bill_tree.column("description", width=200, minwidth=150)
+        bill_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # 添加滚动条
-        bill_scrollbar = ttk.Scrollbar(bill_dialog, orient="vertical", command=bill_tree.yview)
-        bill_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        bill_tree.configure(yscrollcommand=bill_scrollbar.set)
+        # 添加垂直滚动条
+        bill_scrollbar_y = ttk.Scrollbar(bill_tree_frame, orient="vertical", command=bill_tree.yview)
+        bill_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        bill_tree.configure(yscrollcommand=bill_scrollbar_y.set)
+        
+        # 添加水平滚动条
+        bill_scrollbar_x = ttk.Scrollbar(bill_dialog, orient="horizontal", command=bill_tree.xview)
+        bill_scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X, padx=10)
+        bill_tree.configure(xscrollcommand=bill_scrollbar_x.set)
         
         # 填充账单数据
         for bill_id, bill in bills.items():
@@ -1169,6 +1304,7 @@ class WalletGUI:
         stake_dialog = tk.Toplevel(self.root)
         stake_dialog.title("质押代币")
         stake_dialog.geometry("800x600")
+        stake_dialog.minsize(600, 400)
         stake_dialog.transient(self.root)
         stake_dialog.grab_set()
         
@@ -1187,7 +1323,7 @@ class WalletGUI:
     最低质押要求: {self.node.pos_consensus.min_stake_amount}
         """
         
-        info_label = ttk.Label(info_frame, text=info_text, justify=tk.LEFT)
+        info_label = ttk.Label(info_frame, text=info_text, justify=tk.LEFT, wraplength=700)
         info_label.pack(padx=10, pady=10)
         
         # 质押金额输入
@@ -1207,17 +1343,22 @@ class WalletGUI:
             amount = balance * percent / 100
             amount_var.set(f"{amount:.2f}")
         
-        ttk.Button(quick_frame, text="25%", command=lambda: set_amount(25)).pack(side=tk.LEFT, padx=5)
-        ttk.Button(quick_frame, text="50%", command=lambda: set_amount(50)).pack(side=tk.LEFT, padx=5)
-        ttk.Button(quick_frame, text="75%", command=lambda: set_amount(75)).pack(side=tk.LEFT, padx=5)
-        ttk.Button(quick_frame, text="最大", command=lambda: set_amount(100)).pack(side=tk.LEFT, padx=5)
+        # 使用网格布局
+        ttk.Button(quick_frame, text="25%", command=lambda: set_amount(25)).grid(row=0, column=0, padx=5, pady=2, sticky="ew")
+        ttk.Button(quick_frame, text="50%", command=lambda: set_amount(50)).grid(row=0, column=1, padx=5, pady=2, sticky="ew")
+        ttk.Button(quick_frame, text="75%", command=lambda: set_amount(75)).grid(row=0, column=2, padx=5, pady=2, sticky="ew")
+        ttk.Button(quick_frame, text="最大", command=lambda: set_amount(100)).grid(row=0, column=3, padx=5, pady=2, sticky="ew")
+        
+        # 配置网格列权重
+        for i in range(4):
+            quick_frame.columnconfigure(i, weight=1)
         
         # 预计收益信息
         reward_frame = ttk.LabelFrame(stake_dialog, text="预计收益", padding=10)
         reward_frame.pack(fill=tk.X, padx=10, pady=10)
         
         reward_var = tk.StringVar(value="输入质押金额以查看预计收益")
-        reward_label = ttk.Label(reward_frame, textvariable=reward_var, justify=tk.LEFT)
+        reward_label = ttk.Label(reward_frame, textvariable=reward_var, justify=tk.LEFT, wraplength=700)
         reward_label.pack(padx=10, pady=10)
         
         # 计算预计收益
