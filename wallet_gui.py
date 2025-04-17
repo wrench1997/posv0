@@ -72,11 +72,35 @@ class WalletGUI:
         self.main_frame = ttk.Frame(self.root, padding=10)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # 创建左侧面板（钱包列表和节点控制）
-        self.left_frame = ttk.LabelFrame(self.main_frame, text="钱包和节点", padding=10)
-        self.left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # 创建左侧面板（带滚动条）
+        left_container = ttk.Frame(self.main_frame)
+        left_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # 添加滚动条
+        left_scrollbar = ttk.Scrollbar(left_container)
+        left_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # 创建右侧面板（交易和账单）
+        # 创建画布用于滚动
+        left_canvas = tk.Canvas(left_container)
+        left_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # 配置滚动条与画布
+        left_scrollbar.config(command=left_canvas.yview)
+        left_canvas.config(yscrollcommand=left_scrollbar.set)
+        
+        # 在画布中创建框架
+        self.left_frame = ttk.LabelFrame(left_canvas, text="钱包和节点", padding=10)
+        left_canvas_window = left_canvas.create_window((0, 0), window=self.left_frame, anchor="nw")
+
+        # 添加配置更新函数，确保框架宽度正确
+        def configure_left_frame(event):
+            # 设置框架宽度为画布宽度
+            canvas_width = left_canvas.winfo_width()
+            left_canvas.itemconfig(left_canvas_window, width=canvas_width)
+
+        left_canvas.bind('<Configure>', configure_left_frame)
+        self.left_frame.bind("<Configure>", lambda e: left_canvas.configure(scrollregion=left_canvas.bbox("all")))
+        
         self.right_frame = ttk.LabelFrame(self.main_frame, text="交易和账单", padding=10)
         self.right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
         
