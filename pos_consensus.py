@@ -302,9 +302,9 @@ class TendermintConsensus:
         self.proposer = None
         
         # 超时设置
-        self.propose_timeout = 100  # 秒
+        self.propose_timeout = 30  # 秒
         self.prepare_timeout = 5   # 秒
-        self.commit_timeout = 100    # 秒
+        self.commit_timeout = 5    # 秒
         
         # 最后活动时间
         self.last_activity_time = time.time()
@@ -320,8 +320,8 @@ class TendermintConsensus:
         self.proposer = None
         self.last_activity_time = time.time()
     
+    # 在TendermintConsensus的start_new_round方法中
     def start_new_round(self):
-        """开始新的共识轮次"""
         self.current_round += 1
         self.current_step = self.STATE_PRE_PREPARE
         self.prepare_votes = {}
@@ -333,31 +333,42 @@ class TendermintConsensus:
         self.proposer = self.select_proposer()
         
         print(f"开始新轮次: 高度={self.current_height}, 轮次={self.current_round}, 提议者={self.proposer}")
-    
-    def select_proposer(self):
-        """
-        选择区块提议者
+        print(f"当前验证者列表: {self.pos_consensus.validators}")
+        print(f"当前质押信息: {self.pos_consensus.stakes}")
         
-        Returns:
-            str: 提议者地址
-        """
-        # 使用轮次作为随机种子，确保在同一轮次中所有节点选择相同的提议者
+    def select_proposer(self):
+        """选择区块提议者"""
+        # 使用轮次作为随机种子
         seed = f"{self.current_height}_{self.current_round}"
         seed_hash = int(hashlib.sha256(seed.encode()).hexdigest(), 16)
         
         # 获取验证者列表
         validators = self.pos_consensus.validators
         if not validators:
+            print("错误：没有可用的验证者")
             return None
         
+        # 打印验证者信息，帮助调试
+        print(f"当前验证者列表: {validators}")
+        
         # 根据权重选择提议者
-        weights = [self.pos_consensus.stakes[v].get_weight() if v in self.pos_consensus.stakes else 0 
-                  for v in validators]
+        weights = []
+        for v in validators:
+            if v in self.pos_consensus.stakes:
+                weight = self.pos_consensus.stakes[v].get_weight()
+                weights.append(weight)
+                print(f"验证者 {v} 权重: {weight}")
+            else:
+                weights.append(0)
+                print(f"验证者 {v} 未找到质押信息，权重设为0")
+        
         total_weight = sum(weights)
         
         if total_weight == 0:
             # 如果总权重为0，使用确定性随机选择
-            return validators[seed_hash % len(validators)]
+            selected_index = seed_hash % len(validators)
+            print(f"总权重为0，使用随机选择: 索引 {selected_index}")
+            return validators[selected_index]
         
         # 使用加权随机选择
         r = (seed_hash / (2**256)) * total_weight
@@ -366,9 +377,11 @@ class TendermintConsensus:
         for i, weight in enumerate(weights):
             cumulative_weight += weight
             if cumulative_weight > r:
+                print(f"选择验证者 {validators[i]}，累积权重 {cumulative_weight} > {r}")
                 return validators[i]
         
         # 如果没有选中（理论上不应该发生），返回第一个验证者
+        print(f"未选中验证者，返回第一个: {validators[0]}")
         return validators[0]
     
     def propose_block(self, validator_address):
@@ -417,7 +430,7 @@ class TendermintConsensus:
         
         # 检查是否在准备阶段
         if self.current_step != self.STATE_PREPARE:
-            print(f"准备投票: 当前不在准备阶段，当前阶段: {self.current_step}")
+            # print(f"准备投票: 当前不在准备阶段，当前阶段: {self.current_step}")
             return False
         
         # 检查区块哈希是否匹配
@@ -461,7 +474,7 @@ class TendermintConsensus:
         
         # 检查是否在提交阶段
         if self.current_step != self.STATE_COMMIT:
-            print(f"提交投票: 当前不在提交阶段，当前阶段: {self.current_step}")
+            #print(f"提交投票: 当前不在提交阶段，当前阶段: {self.current_step}")
             return False
         
         # 检查区块哈希是否匹配

@@ -521,7 +521,7 @@ class WalletGUI:
         ttk.Label(manual_frame, text="种子节点端口:").pack(anchor=tk.W)
         port_entry = ttk.Entry(manual_frame)
         port_entry.pack(fill=tk.X, pady=2)
-        port_entry.insert(0, "5000")
+        port_entry.insert(0, "5005")
         
         # 自动发现框架
         auto_frame = ttk.LabelFrame(connect_dialog, text="自动发现", padding=10)
@@ -529,10 +529,10 @@ class WalletGUI:
         
         # 预配置节点列表
         predefined_nodes = [
-            ("主网节点1", "node1.example.com", 5000),
-            ("主网节点2", "node2.example.com", 5000),
-            ("测试网节点", "testnet.example.com", 5000),
-            ("本地节点", "127.0.0.1", 5000)
+            ("主网节点1", "node1.example.com", 5005),
+            ("主网节点2", "node2.example.com", 5005),
+            ("测试网节点", "testnet.example.com", 5005),
+            ("本地节点", "127.0.0.1", 5005)
         ]
         
         node_var = tk.StringVar()

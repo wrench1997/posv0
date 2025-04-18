@@ -7,6 +7,7 @@ from typing import List, Dict, Any
 
 from blockchain_core import Blockchain, Transaction,Block
 from p2p_network import P2PNode
+from wallet import WalletManager, Wallet
 
 from pos_consensus import POSConsensus,TendermintConsensus
 from mining_rewards import RewardCalculator, RewardDistributor
@@ -69,15 +70,23 @@ class Node:
                 print("Loaded blockchain data is invalid, using new blockchain")
 
         # 添加Tendermint共识支持
-        self.use_tendermint = True  # 默认不启用Tendermint
+        self.use_tendermint = False  # 默认不启用Tendermint
         self.tendermint_consensus = None
-    
+        
+        wallet_manager = WalletManager()
+        wallet = wallet_manager.get_wallet_by_address(node_id)
+        if wallet:
+            self.staked_amount = wallet.staked_amount
+            print(f"从钱包加载质押状态: {self.staked_amount}")
     # 在 main.py 中的 Node 类的 start 方法中添加
 
     def start(self) -> None:
         """启动节点"""
         # 确保区块链一致性
         self.ensure_blockchain_consistency()
+
+        # 同步质押状态
+        self.sync_stake_status()
         
         # 启动P2P网络
         self.p2p_node.start()
@@ -91,7 +100,14 @@ class Node:
         threading.Thread(target=self.auto_save_loop, daemon=True).start()
         
         print(f"节点 {self.node_id} 启动成功")
+        
 
+    def sync_stake_status(self):
+        """同步质押状态到POS共识机制"""
+        if self.staked_amount > 0:
+            print(f"同步质押状态: 地址={self.node_id}, 金额={self.staked_amount}")
+            self.pos_consensus.add_stake(self.node_id, self.staked_amount)
+            
     def auto_save_loop(self) -> None:
         """自动保存循环"""
         save_interval = 300  # 5分钟保存一次
