@@ -8,6 +8,7 @@ import threading
 import time
 from typing import List, Dict, Any, Callable, Optional
 import random
+from tendermint_consensus import Vote
 
 from blockchain_core import Blockchain, Block, Transaction
 

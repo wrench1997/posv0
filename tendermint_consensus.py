@@ -527,8 +527,9 @@ class TendermintConsensus:
             # 广播新区块
             self.broadcast_block(block_to_commit)
             
-            # 开始新的高度
-            self.start_new_height()
+            # 使用定时器延迟启动新高度，避免递归
+            import threading
+            threading.Timer(180, self.start_new_height).start()
         else:
             print(f"提交区块失败: {block_hash[:8]}")
             self.start_new_round()
@@ -544,8 +545,9 @@ class TendermintConsensus:
         
         print(f"开始新的高度: {self.height}")
         
-        # 进入提议阶段
-        self.enter_propose()
+        # 使用定时器延迟进入提议阶段，避免递归
+        import threading
+        threading.Timer(180, self.enter_propose).start()
     
     def start_new_round(self) -> None:
         """开始新的轮次"""

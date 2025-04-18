@@ -5,9 +5,9 @@ import threading
 import random
 import uuid
 from typing import List, Dict, Any
-
+from tendermint_consensus import TendermintConsensus
 from blockchain_core import Blockchain, Transaction,Block
-from p2p_network import P2PNode
+from p2p_network import P2PNode, Message
 
 from pos_consensus import POSConsensus
 from mining_rewards import RewardCalculator, RewardDistributor
