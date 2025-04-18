@@ -27,7 +27,7 @@ class WalletGUI:
         self.root.title("区块链钱包")
         
         # 设置初始窗口大小，但允许调整
-        self.root.geometry("1280x720")
+        self.root.geometry("1280x1024")
         self.root.minsize(800, 600)  # 设置最小窗口大小
         self.root.resizable(True, True)
         
@@ -279,6 +279,18 @@ class WalletGUI:
         self.status_var = tk.StringVar(value="就绪")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        
+
+        tendermint_frame = ttk.LabelFrame(node_frame, text="Tendermint共识", padding=5)
+        tendermint_frame.pack(fill=tk.X, pady=5)
+
+        self.tendermint_status_var = tk.StringVar(value="未启用")
+        ttk.Label(tendermint_frame, textvariable=self.tendermint_status_var).pack(side=tk.LEFT, padx=5)
+
+        self.tendermint_btn = ttk.Button(tendermint_frame, text="启用Tendermint", command=self.toggle_tendermint)
+        self.tendermint_btn.pack(side=tk.RIGHT, padx=5)
+
+                
     
     def update_wallet_list(self):
         """更新钱包列表"""
@@ -1525,6 +1537,63 @@ class WalletGUI:
         self.root.destroy()
 
 
+
+    # 在 WalletGUI 类中添加以下方法
+
+    def toggle_tendermint(self):
+        """切换Tendermint共识状态"""
+        if not self.node:
+            messagebox.showerror("错误", "请先启动本地节点")
+            return
+        
+        if self.node.use_tendermint:
+            # 禁用Tendermint
+            self.node.disable_tendermint()
+            self.tendermint_status_var.set("未启用")
+            self.tendermint_btn.config(text="启用Tendermint")
+            messagebox.showinfo("成功", "已禁用Tendermint共识")
+        else:
+            # 启用Tendermint
+            self.node.enable_tendermint()
+            self.tendermint_status_var.set("已启用")
+            self.tendermint_btn.config(text="禁用Tendermint")
+            messagebox.showinfo("成功", "已启用Tendermint共识")
+
+    # 修改 update_blockchain_info 方法，添加Tendermint状态
+
+    def update_blockchain_info(self):
+        """更新区块链信息"""
+        if not self.node:
+            return
+        
+        info = self.node.get_blockchain_info()
+        
+        # 获取最新区块信息
+        latest_block = None
+        if info['chain_length'] > 0:
+            latest_block = self.node.blockchain.get_latest_block()
+            latest_block_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(latest_block.timestamp))
+        else:
+            latest_block_time = "N/A"
+        
+        # 添加Tendermint状态
+        tendermint_status = "未启用"
+        if self.node.use_tendermint and self.node.tendermint_consensus:
+            tendermint_status = f"已启用 (高度: {self.node.tendermint_consensus.current_height}, 轮次: {self.node.tendermint_consensus.current_round}, 阶段: {self.node.tendermint_consensus.current_step})"
+            self.tendermint_status_var.set("已启用")
+            self.tendermint_btn.config(text="禁用Tendermint")
+        else:
+            self.tendermint_status_var.set("未启用")
+            self.tendermint_btn.config(text="启用Tendermint")
+        
+        self.blockchain_info_var.set(
+            f"链长度: {info['chain_length']}\n"
+            f"待处理交易: {info['pending_transactions']}\n"
+            f"链是否有效: {info['is_valid']}\n"
+            f"最新区块时间: {latest_block_time}\n"
+            f"Tendermint: {tendermint_status}"
+        )
+        
 if __name__ == "__main__":
     root = tk.Tk()
     app = WalletGUI(root)

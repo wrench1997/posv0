@@ -169,7 +169,7 @@ class RewardCalculator:
         avg_block_time = sum(time_diffs) / len(time_diffs)
         
         # 目标区块时间（秒）
-        target_block_time = 180  # 3分钟
+        target_block_time = 10  # 3分钟
         
         # 计算时间因子（如果区块生成太快，减少奖励；太慢则增加奖励）
         time_factor = target_block_time / avg_block_time

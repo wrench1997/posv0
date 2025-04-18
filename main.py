@@ -1,5 +1,4 @@
 
-
 import time
 import threading
 import random
@@ -9,7 +8,7 @@ from typing import List, Dict, Any
 from blockchain_core import Blockchain, Transaction,Block
 from p2p_network import P2PNode
 
-from pos_consensus import POSConsensus
+from pos_consensus import POSConsensus,TendermintConsensus
 from mining_rewards import RewardCalculator, RewardDistributor
 from bill_hash import BillManager, Bill
 from blockchain_storage import BlockchainStorage
@@ -69,6 +68,9 @@ class Node:
             else:
                 print("Loaded blockchain data is invalid, using new blockchain")
 
+        # 添加Tendermint共识支持
+        self.use_tendermint = True  # 默认不启用Tendermint
+        self.tendermint_consensus = None
     
     # 在 main.py 中的 Node 类的 start 方法中添加
 
@@ -322,45 +324,79 @@ class Node:
     def block_generation_loop(self) -> None:
         """区块生成循环"""
         while self.running:
-            # 检查是否到了生成新区块的时间
-            if self.pos_consensus.is_time_to_forge():
-                # 选择验证者
-                validator = self.pos_consensus.select_validator()
+            # 如果使用Tendermint共识
+            if self.use_tendermint and self.tendermint_consensus:
+                # 检查是否超时
+                if self.tendermint_consensus.check_timeout():
+                    self.tendermint_consensus.handle_timeout()
                 
-                if validator == self.node_id:
-                    print(f"节点 {self.node_id} 被选为验证者，生成新区块\n")
+                # 如果是提议阶段且当前节点是提议者
+                if (self.tendermint_consensus.current_step == self.tendermint_consensus.STATE_PRE_PREPARE and 
+                    self.tendermint_consensus.proposer == self.node_id):
                     
-                    # 生成新区块
-                    new_block = self.pos_consensus.forge_block(self.node_id)
+                    print(f"节点 {self.node_id} 是当前轮次的提议者，生成区块提议")
                     
+                    # 提议新区块前添加奖励交易
+                    new_block = self.tendermint_consensus.propose_block(self.node_id)
                     if new_block:
-                        # 确保区块索引正确
-                        expected_index = len(self.blockchain.chain)
-                        if new_block.index != expected_index:
-                            print(f"区块索引不匹配，期望 {expected_index}，实际 {new_block.index}，重新设置索引")
-                            new_block.index = expected_index
-                            new_block.hash = new_block.calculate_hash()
-                        
                         # 添加奖励交易
                         self.reward_distributor.add_reward_transaction(new_block)
                         
-                        # 添加区块到区块链
-                        if self.blockchain.add_block(new_block):
-                            # 广播新区块
-                            self.p2p_node.broadcast_new_block(new_block)
+                        # 更新区块哈希
+                        new_block.hash = new_block.calculate_hash()
+                        
+                        # 广播区块提议
+                        self.p2p_node.broadcast_tendermint_propose(new_block)
+                        
+                        # 自己也投票
+                        self.p2p_node.broadcast_tendermint_prepare_vote(new_block.hash)
+                time.sleep(5)
+                # 定期广播同步消息
+                if random.random() < 0.05:  # 5%的概率发送同步消息，避免网络拥堵
+                    self.p2p_node.broadcast_tendermint_sync()
+            
+            # 如果使用原始POS共识
+            else:
+                # 检查是否到了生成新区块的时间
+                if self.pos_consensus.is_time_to_forge():
+                    # 选择验证者
+                    validator = self.pos_consensus.select_validator()
+                    
+                    if validator == self.node_id:
+                        print(f"节点 {self.node_id} 被选为验证者，生成新区块\n")
+                        
+                        # 生成新区块
+                        new_block = self.pos_consensus.forge_block(self.node_id)
+                        
+                        if new_block:
+                            # 确保区块索引正确
+                            expected_index = len(self.blockchain.chain)
+                            if new_block.index != expected_index:
+                                print(f"区块索引不匹配，期望 {expected_index}，实际 {new_block.index}，重新设置索引")
+                                new_block.index = expected_index
+                                new_block.previous_hash = self.blockchain.get_latest_block().hash
+                                new_block.hash = new_block.calculate_hash()
                             
-                            # 获取奖励
-                            reward = self.reward_calculator.calculate_total_reward(new_block)
-                            self.balance += reward
+                            # 添加奖励交易
+                            self.reward_distributor.add_reward_transaction(new_block)
                             
-                            print(f"节点 {self.node_id} 成功生成区块 {new_block.index}，获得奖励: {reward}")
-                            
-                            # 保存区块链数据
-                            self.save_blockchain_data()
+                            # 添加区块到区块链
+                            if self.blockchain.add_block(new_block):
+                                # 广播新区块
+                                self.p2p_node.broadcast_new_block(new_block)
+                                
+                                # 获取奖励
+                                reward = self.reward_calculator.calculate_total_reward(new_block)
+                                self.balance += reward
+                                
+                                print(f"节点 {self.node_id} 成功生成区块 {new_block.index}，获得奖励: {reward}")
+                                
+                                # 保存区块链数据
+                                self.save_blockchain_data()
+                            else:
+                                print(f"节点 {self.node_id} 添加区块失败")
                         else:
-                            print(f"节点 {self.node_id} 添加区块失败")
-                    else:
-                        print(f"节点 {self.node_id} 生成区块失败")
+                            print(f"节点 {self.node_id} 生成区块失败")
             
             # 休眠一段时间
             time.sleep(1)
@@ -445,3 +481,27 @@ class Node:
             
             # 保存修复后的区块链
             self.save_blockchain_data()
+            
+    def enable_tendermint(self):
+        """启用Tendermint共识"""
+        if self.tendermint_consensus:
+            print("Tendermint共识已启用")
+            return
+        
+        # 初始化Tendermint共识
+        from pos_consensus import TendermintConsensus
+        self.tendermint_consensus = TendermintConsensus(self.blockchain, self.pos_consensus)
+        self.use_tendermint = True
+        
+        print(f"节点 {self.node_id} 已启用Tendermint共识")
+
+    def disable_tendermint(self):
+        """禁用Tendermint共识"""
+        if not self.tendermint_consensus:
+            print("Tendermint共识未启用")
+            return
+        
+        self.tendermint_consensus = None
+        self.use_tendermint = False
+        
+        print(f"节点 {self.node_id} 已禁用Tendermint共识")

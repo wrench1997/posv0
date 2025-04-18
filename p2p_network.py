@@ -23,7 +23,13 @@ class Message:
     TYPE_NEW_TRANSACTION = "NEW_TRANSACTION"
     TYPE_BLOCK_REQUEST = "BLOCK_REQUEST"
     TYPE_BLOCK_RESPONSE = "BLOCK_RESPONSE"
-    
+
+    # 在 Message 类中添加
+    TYPE_TENDERMINT_PROPOSE = "TENDERMINT_PROPOSE"
+    TYPE_TENDERMINT_PREPARE = "TENDERMINT_PREPARE"
+    TYPE_TENDERMINT_COMMIT = "TENDERMINT_COMMIT"
+    TYPE_TENDERMINT_SYNC = "TENDERMINT_SYNC"
+
     def __init__(self, msg_type: str, data: Dict[str, Any], sender: str):
         """
         初始化消息
@@ -92,7 +98,11 @@ class P2PNode:
             Message.TYPE_BLOCKCHAIN_REQUEST: self.handle_blockchain_request,
             Message.TYPE_BLOCKCHAIN_RESPONSE: self.handle_blockchain_response,
             Message.TYPE_NEW_BLOCK: self.handle_new_block,
-            Message.TYPE_NEW_TRANSACTION: self.handle_new_transaction
+            Message.TYPE_NEW_TRANSACTION: self.handle_new_transaction,
+            Message.TYPE_TENDERMINT_PROPOSE: self.handle_tendermint_propose,
+            Message.TYPE_TENDERMINT_PREPARE: self.handle_tendermint_prepare,
+            Message.TYPE_TENDERMINT_COMMIT: self.handle_tendermint_commit,
+            Message.TYPE_TENDERMINT_SYNC: self.handle_tendermint_sync
         }
     
     def start(self) -> None:
@@ -961,3 +971,239 @@ class P2PNode:
                         stake_data['timestamp']
                     )
                     self.node.pos_consensus.stakes[address].age = stake_data['age']
+
+    def handle_tendermint_propose(self, message):
+        """
+        处理Tendermint提议消息
+        
+        Args:
+            message: 提议消息
+            
+        Returns:
+            str: 响应消息的JSON字符串
+        """
+        if not hasattr(self.node, 'tendermint_consensus'):
+            print("节点未启用Tendermint共识")
+            return None
+        
+        block_dict = message.data.get('block')
+        proposer = message.sender
+        
+        # 验证提议者身份
+        if not self.node.tendermint_consensus.is_validator(proposer):
+            print(f"提议消息: {proposer} 不是有效验证者")
+            return None
+        
+        # 检查提议者是否是当前轮次的指定提议者
+        if proposer != self.node.tendermint_consensus.proposer:
+            print(f"提议消息: {proposer} 不是当前轮次的指定提议者 {self.node.tendermint_consensus.proposer}")
+            return None
+        
+        # 转换区块
+        proposed_block = Block.from_dict(block_dict)
+        
+        # 验证区块
+        if not self.blockchain.is_valid_block(proposed_block):
+            print(f"提议消息: 区块 {proposed_block.index} 无效")
+            return None
+        
+        # 设置提议的区块
+        self.node.tendermint_consensus.proposed_block = proposed_block
+        self.node.tendermint_consensus.current_step = self.node.tendermint_consensus.STATE_PREPARE
+        self.node.tendermint_consensus.last_activity_time = time.time()
+        
+        print(f"收到有效的区块提议: {proposed_block.index} 来自 {proposer}")
+        
+        # 生成准备投票
+        self.broadcast_tendermint_prepare_vote(proposed_block.hash)
+        
+        return None
+
+    def handle_tendermint_prepare(self, message):
+        """
+        处理Tendermint准备投票消息
+        
+        Args:
+            message: 准备投票消息
+            
+        Returns:
+            str: 响应消息的JSON字符串
+        """
+        if not hasattr(self.node, 'tendermint_consensus'):
+            print("节点未启用Tendermint共识")
+            return None
+        
+        validator = message.sender
+        block_hash = message.data.get('block_hash')
+        signature = message.data.get('signature')
+        
+        # 添加准备投票
+        result = self.node.tendermint_consensus.prepare_vote(validator, block_hash, signature)
+        
+        if result and self.node.tendermint_consensus.current_step == self.node.tendermint_consensus.STATE_COMMIT:
+            # 如果进入提交阶段，广播提交投票
+            self.broadcast_tendermint_commit_vote(block_hash)
+        
+        return None
+
+    def handle_tendermint_commit(self, message):
+        """
+        处理Tendermint提交投票消息
+        
+        Args:
+            message: 提交投票消息
+            
+        Returns:
+            str: 响应消息的JSON字符串
+        """
+        if not hasattr(self.node, 'tendermint_consensus'):
+            print("节点未启用Tendermint共识")
+            return None
+        
+        validator = message.sender
+        block_hash = message.data.get('block_hash')
+        signature = message.data.get('signature')
+        
+        # 添加提交投票
+        self.node.tendermint_consensus.commit_vote(validator, block_hash, signature)
+        
+        return None
+
+    def handle_tendermint_sync(self, message):
+        """
+        处理Tendermint同步消息
+        
+        Args:
+            message: 同步消息
+            
+        Returns:
+            str: 响应消息的JSON字符串
+        """
+        if not hasattr(self.node, 'tendermint_consensus'):
+            print("节点未启用Tendermint共识")
+            return None
+        
+        height = message.data.get('height')
+        round = message.data.get('round')
+        step = message.data.get('step')
+        
+        # 如果对方的高度更高，请求区块链同步
+        if height > len(self.blockchain.chain):
+            self.synchronize_blockchain()
+            return None
+        
+        # 如果在同一高度但轮次或步骤不同，可能需要同步状态
+        if height == self.node.tendermint_consensus.current_height:
+            if round > self.node.tendermint_consensus.current_round:
+                # 对方轮次更高，开始新轮次
+                self.node.tendermint_consensus.current_round = round
+                self.node.tendermint_consensus.current_step = step
+                self.node.tendermint_consensus.last_activity_time = time.time()
+                
+                print(f"同步到更高轮次: {round}, 步骤: {step}")
+            elif round == self.node.tendermint_consensus.current_round:
+                # 同一轮次，但步骤可能不同
+                step_order = {
+                    self.node.tendermint_consensus.STATE_PRE_PREPARE: 0,
+                    self.node.tendermint_consensus.STATE_PREPARE: 1,
+                    self.node.tendermint_consensus.STATE_COMMIT: 2,
+                    self.node.tendermint_consensus.STATE_FINALIZED: 3
+                }
+                
+                if step_order.get(step, -1) > step_order.get(self.node.tendermint_consensus.current_step, -1):
+                    # 对方步骤更高，更新步骤
+                    self.node.tendermint_consensus.current_step = step
+                    self.node.tendermint_consensus.last_activity_time = time.time()
+                    
+                    print(f"同步到更高步骤: {step}")
+        
+        return None
+
+    def broadcast_tendermint_propose(self, block):
+        """
+        广播Tendermint提议消息
+        
+        Args:
+            block: 提议的区块
+        """
+        message = Message(
+            Message.TYPE_TENDERMINT_PROPOSE,
+            {
+                'block': block.to_dict(),
+                'height': self.node.tendermint_consensus.current_height,
+                'round': self.node.tendermint_consensus.current_round
+            },
+            self.node_id
+        )
+        
+        self.broadcast_message(message)
+        print(f"广播区块提议: {block.index}")
+
+    def broadcast_tendermint_prepare_vote(self, block_hash):
+        """
+        广播Tendermint准备投票
+        
+        Args:
+            block_hash: 区块哈希
+        """
+        # 生成投票签名（在实际系统中应使用私钥签名）
+        signature = f"PREPARE_{self.node_id}_{int(time.time())}"
+        
+        message = Message(
+            Message.TYPE_TENDERMINT_PREPARE,
+            {
+                'block_hash': block_hash,
+                'signature': signature,
+                'height': self.node.tendermint_consensus.current_height,
+                'round': self.node.tendermint_consensus.current_round
+            },
+            self.node_id
+        )
+        
+        self.broadcast_message(message)
+        print(f"广播准备投票: {block_hash[:8]}")
+        
+        # 将自己的投票也添加到本地
+        self.node.tendermint_consensus.prepare_vote(self.node_id, block_hash, signature)
+
+    def broadcast_tendermint_commit_vote(self, block_hash):
+        """
+        广播Tendermint提交投票
+        
+        Args:
+            block_hash: 区块哈希
+        """
+        # 生成投票签名（在实际系统中应使用私钥签名）
+        signature = f"COMMIT_{self.node_id}_{int(time.time())}"
+        
+        message = Message(
+            Message.TYPE_TENDERMINT_COMMIT,
+            {
+                'block_hash': block_hash,
+                'signature': signature,
+                'height': self.node.tendermint_consensus.current_height,
+                'round': self.node.tendermint_consensus.current_round
+            },
+            self.node_id
+        )
+        
+        self.broadcast_message(message)
+        print(f"广播提交投票: {block_hash[:8]}")
+        
+        # 将自己的投票也添加到本地
+        self.node.tendermint_consensus.commit_vote(self.node_id, block_hash, signature)
+
+    def broadcast_tendermint_sync(self):
+        """广播Tendermint同步消息"""
+        message = Message(
+            Message.TYPE_TENDERMINT_SYNC,
+            {
+                'height': self.node.tendermint_consensus.current_height,
+                'round': self.node.tendermint_consensus.current_round,
+                'step': self.node.tendermint_consensus.current_step
+            },
+            self.node_id
+        )
+        
+        self.broadcast_message(message)
+        print(f"广播同步消息: 高度={self.node.tendermint_consensus.current_height}, 轮次={self.node.tendermint_consensus.current_round}, 步骤={self.node.tendermint_consensus.current_step}")
