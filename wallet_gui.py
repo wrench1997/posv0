@@ -8,7 +8,7 @@ import os
 from typing import Dict, List, Any, Optional
 
 from wallet import WalletManager, Wallet
-from main import Node
+from Node import Node
 from mining_rewards import RewardCalculator, RewardDistributor
 from pos_consensus import POSConsensus
 from bill_hash import BillManager
