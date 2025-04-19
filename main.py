@@ -195,6 +195,7 @@ class Node:
         #     return False
         
         if amount > self.balance:
+            
             print(f"余额不足: {self.balance} < {amount}")
             return False
         

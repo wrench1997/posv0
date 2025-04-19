@@ -237,7 +237,7 @@ class P2PNode:
                     # 尝试解析JSON
                     try:
                         response_str = data.decode('utf-8')
-                        print(f"接收响应{response_str}")
+                        #print(f"接收响应{response_str}")
                         response_message = Message.from_json(response_str)
                         break
                     except json.JSONDecodeError:

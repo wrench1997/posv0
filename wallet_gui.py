@@ -320,21 +320,19 @@ class WalletGUI:
         self.select_wallet(wallet_name)
     
     def select_wallet(self, name):
-        """
-        选择钱包
-        
-        Args:
-            name: 钱包名称
-        """
         wallet = self.wallet_manager.get_wallet(name)
         
         if wallet:
             self.current_wallet = wallet
             self.current_wallet_var.set(f"当前钱包: {wallet.name}\n地址: {wallet.address}")
             
-            # 如果节点已启动，更新节点ID
+            # 如果节点已启动，更新节点ID和余额
             if self.node:
                 self.node.node_id = wallet.address
+                
+                # 获取并设置正确的余额
+                balance = wallet.get_balance(self.node)
+                self.node.balance = balance + wallet.staked_amount  # 总余额应该是可用余额加上已质押金额
                 
                 # 同步质押状态
                 if wallet.staked_amount > 0:
@@ -344,10 +342,6 @@ class WalletGUI:
                 self.update_balance()
                 self.update_transaction_history()
                 self.update_stake_info()
-            
-            self.status_var.set(f"已选择钱包: {wallet.name}")
-        else:
-            messagebox.showerror("错误", f"钱包 {name} 不存在")
     
     def create_wallet(self):
         """创建新钱包"""
@@ -468,12 +462,14 @@ class WalletGUI:
                 self.node = Node(node_id, host, port)
                 self.node.start()
 
+                
                 # 如果有当前钱包，设置节点的余额为钱包余额
                 if self.current_wallet:
-                    # 同步质押状态
-                    if self.current_wallet.staked_amount > 0:
-                        self.node.staked_amount = self.current_wallet.staked_amount
-                        self.node.pos_consensus.add_stake(self.current_wallet.address, self.current_wallet.staked_amount)
+                    # 计算钱包的实际余额
+                    actual_balance = self.current_wallet.get_balance(self.node) + self.current_wallet.staked_amount
+                    # 设置节点的余额
+                    self.node.balance = actual_balance
+                    print(f"设置节点余额为钱包实际余额: {actual_balance}")
                 
                 self.node_status_var.set(f"节点已启动: {node_id}\n地址: {host}:{port}")
                 self.status_var.set(f"本地节点 {node_id} 已启动")
@@ -1184,6 +1180,9 @@ class WalletGUI:
         # 按时间戳排序
         history.sort(key=lambda x: x['timestamp'], reverse=True)
         
+        # 只显示最新的20条记录
+        history = history[:20]
+        
         # 添加交易记录
         for tx in history:
             tx_type = "发送" if tx['sender'] == self.current_wallet.address else "接收"
@@ -1203,7 +1202,7 @@ class WalletGUI:
                 amount,
                 tx_time
             ))
-    
+        
     def create_transaction(self):
         """创建交易"""
         if not self.current_wallet:
