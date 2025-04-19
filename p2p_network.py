@@ -23,7 +23,13 @@ class Message:
     TYPE_NEW_TRANSACTION = "NEW_TRANSACTION"
     TYPE_BLOCK_REQUEST = "BLOCK_REQUEST"
     TYPE_BLOCK_RESPONSE = "BLOCK_RESPONSE"
-    
+
+    # 在 Message 类中添加
+    TYPE_TENDERMINT_PROPOSE = "TENDERMINT_PROPOSE"
+    TYPE_TENDERMINT_PREPARE = "TENDERMINT_PREPARE"
+    TYPE_TENDERMINT_COMMIT = "TENDERMINT_COMMIT"
+    TYPE_TENDERMINT_SYNC = "TENDERMINT_SYNC"
+
     def __init__(self, msg_type: str, data: Dict[str, Any], sender: str):
         """
         初始化消息
@@ -92,7 +98,11 @@ class P2PNode:
             Message.TYPE_BLOCKCHAIN_REQUEST: self.handle_blockchain_request,
             Message.TYPE_BLOCKCHAIN_RESPONSE: self.handle_blockchain_response,
             Message.TYPE_NEW_BLOCK: self.handle_new_block,
-            Message.TYPE_NEW_TRANSACTION: self.handle_new_transaction
+            Message.TYPE_NEW_TRANSACTION: self.handle_new_transaction,
+            Message.TYPE_TENDERMINT_PROPOSE: self.handle_tendermint_propose,
+            Message.TYPE_TENDERMINT_PREPARE: self.handle_tendermint_prepare,
+            Message.TYPE_TENDERMINT_COMMIT: self.handle_tendermint_commit,
+            Message.TYPE_TENDERMINT_SYNC: self.handle_tendermint_sync
         }
     
     def start(self) -> None:
@@ -144,27 +154,108 @@ class P2PNode:
                 if self.running:
                     print(f"监听连接时出错: {e}")
     
+    # 在p2p_network.py中修改
+
     def handle_connection(self, client_socket: socket.socket) -> None:
-        """
-        处理客户端连接
-        
-        Args:
-            client_socket: 客户端套接字
-        """
+        """处理客户端连接"""
         try:
-            # 接收消息
-            data = client_socket.recv(4096)
+            # 使用更大的缓冲区接收数据
+            buffer_size =  1024 * 1024  # 增加到64KB
+            data = b""
+            
+            # 循环接收数据，直到接收完整消息
+            while True:
+                chunk = client_socket.recv(buffer_size)
+                if not chunk:
+                    break
+                data += chunk
+                
+                # 尝试解析JSON，如果成功则表示消息接收完毕
+                try:
+                    message_str = data.decode('utf-8')
+                    message = Message.from_json(message_str)
+                    break
+                except json.JSONDecodeError:
+                    # 消息不完整，继续接收
+                    continue
+            
             if data:
-                message = Message.from_json(data.decode('utf-8'))
+                message_str = data.decode('utf-8')
+                message = Message.from_json(message_str)
                 print(f"收到来自 {message.sender} 的消息: {message.type}")
                 
                 # 处理消息
                 if message.type in self.message_handlers:
                     response = self.message_handlers[message.type](message)
                     if response:
-                        client_socket.send(response.encode('utf-8'))
+                        # 分块发送大型响应
+                        self.send_large_message(client_socket, response)
         except Exception as e:
             print(f"处理连接时出错: {e}")
+        finally:
+            client_socket.close()
+
+    def send_large_message(self, socket, message_str):
+        """分块发送大型消息"""
+        chunk_size = 8192
+        for i in range(0, len(message_str), chunk_size):
+            chunk = message_str[i:i+chunk_size]
+            socket.send(chunk.encode('utf-8'))
+
+    def send_message_to_peer(self, peer_id: str, message: Message) -> Optional[Message]:
+        """向特定对等节点发送消息"""
+        if peer_id not in self.peers:
+            print(f"节点 {peer_id} 不在对等节点列表中")
+            return None
+        
+        host, port = self.peers[peer_id]
+        
+        try:
+            # 创建客户端套接字
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.connect((host, port))
+            
+            # 分块发送消息
+            message_json = message.to_json()
+            self.send_large_message(client_socket, message_json)
+            
+            # 接收响应
+            buffer_size = 65536
+            data = b""
+            
+            # 设置超时
+            client_socket.settimeout(10.0)
+            
+            # 循环接收数据
+            while True:
+                try:
+                    chunk = client_socket.recv(buffer_size)
+                    if not chunk:
+                        break
+                    data += chunk
+                    
+                    # 尝试解析JSON
+                    try:
+                        response_str = data.decode('utf-8')
+                        #print(f"接收响应{response_str}")
+                        response_message = Message.from_json(response_str)
+                        break
+                    except json.JSONDecodeError:
+                        # 消息不完整，继续接收
+                        continue
+                except socket.timeout:
+                    print(f"从节点 {peer_id} 接收响应超时")
+                    break
+            
+            if data:
+                response_str = data.decode('utf-8')
+                response_message = Message.from_json(response_str)
+                print(f"向节点 {peer_id} 发送消息: {message.type}，收到响应: {response_message.type}")
+                return response_message
+            return None
+        except Exception as e:
+            print(f"向节点 {peer_id} 发送消息时出错: {e}")
+            return None
         finally:
             client_socket.close()
     
@@ -244,43 +335,7 @@ class P2PNode:
             except Exception as e:
                 print(f"向节点 {peer_id} 广播消息时出错: {e}")
     
-    def send_message_to_peer(self, peer_id: str, message: Message) -> Optional[Message]:
-        """
-        向特定对等节点发送消息
-        
-        Args:
-            peer_id: 对等节点ID
-            message: 要发送的消息
-            
-        Returns:
-            Optional[Message]: 响应消息，如果有的话
-        """
-        if peer_id not in self.peers:
-            print(f"节点 {peer_id} 不在对等节点列表中")
-            return None
-        
-        host, port = self.peers[peer_id]
-        
-        try:
-            # 创建客户端套接字
-            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_socket.connect((host, port))
-            
-            # 发送消息
-            client_socket.send(message.to_json().encode('utf-8'))
-            
-            # 接收响应
-            response = client_socket.recv(4096).decode('utf-8')
-            response_message = Message.from_json(response)
-            
-            print(f"向节点 {peer_id} 发送消息: {message.type}，收到响应: {response_message.type}")
-            
-            return response_message
-        except Exception as e:
-            print(f"向节点 {peer_id} 发送消息时出错: {e}")
-            return None
-        finally:
-            client_socket.close()
+
     
     def handle_handshake(self, message: Message) -> str:
         """
@@ -335,20 +390,14 @@ class P2PNode:
         return response_message.to_json()
     
     def handle_blockchain_request(self, message: Message) -> str:
-        """
-        处理区块链请求消息
-        
-        Args:
-            message: 区块链请求消息
-            
-        Returns:
-            str: 响应消息的JSON字符串
-        """
-        # 创建响应消息，包含整个区块链
+        """处理区块链请求消息"""
+        # 返回完整的区块链数据
         response_message = Message(
             Message.TYPE_BLOCKCHAIN_RESPONSE,
             {
-                'blockchain': self.blockchain.to_dict()
+                'chain_length': len(self.blockchain.chain),
+                'last_block_hash': self.blockchain.get_latest_block().hash,
+                'blockchain': self.blockchain.to_dict()  # 添加完整的区块链数据
             },
             self.node_id
         )
@@ -356,21 +405,14 @@ class P2PNode:
         return response_message.to_json()
     
     def handle_blockchain_response(self, message: Message) -> None:
-        """
-        处理区块链响应消息
+        """处理区块链响应消息"""
+        # 检查是否需要同步
+        remote_chain_length = message.data.get('chain_length', 0)
         
-        Args:
-            message: 区块链响应消息
-        """
-        received_blockchain = Blockchain.from_dict(message.data['blockchain'])
-        
-        # 如果接收到的区块链比当前区块链长，则替换当前区块链
-        if len(received_blockchain.chain) > len(self.blockchain.chain):
-            if received_blockchain.is_chain_valid():
-                self.blockchain = received_blockchain
-                print(f"从节点 {message.sender} 更新区块链，当前长度: {len(self.blockchain.chain)}")
-            else:
-                print(f"从节点 {message.sender} 接收到的区块链无效")
+        if remote_chain_length > len(self.blockchain.chain):
+            # 需要同步，请求区块
+            for i in range(len(self.blockchain.chain), remote_chain_length):
+                self.request_block(message.sender, i)
     
 
     def handle_new_block(self, message: Message) -> None:
@@ -654,6 +696,11 @@ class P2PNode:
                 if not response or response.type != Message.TYPE_BLOCKCHAIN_RESPONSE:
                     continue
                 
+                # 检查响应中是否包含完整的区块链数据
+                if 'blockchain' not in response.data:
+                    print(f"从节点 {peer_id} 接收到的响应中没有区块链数据")
+                    continue
+                    
                 received_blockchain = Blockchain.from_dict(response.data['blockchain'])
                 
                 # 验证接收到的区块链
@@ -961,3 +1008,239 @@ class P2PNode:
                         stake_data['timestamp']
                     )
                     self.node.pos_consensus.stakes[address].age = stake_data['age']
+
+    def handle_tendermint_propose(self, message):
+        """
+        处理Tendermint提议消息
+        
+        Args:
+            message: 提议消息
+            
+        Returns:
+            str: 响应消息的JSON字符串
+        """
+        if not hasattr(self.node, 'tendermint_consensus'):
+            print("节点未启用Tendermint共识")
+            return None
+        
+        block_dict = message.data.get('block')
+        proposer = message.sender
+        
+        # 验证提议者身份
+        if not self.node.tendermint_consensus.is_validator(proposer):
+            print(f"提议消息: {proposer} 不是有效验证者")
+            return None
+        
+        # 检查提议者是否是当前轮次的指定提议者
+        if proposer != self.node.tendermint_consensus.proposer:
+            print(f"提议消息: {proposer} 不是当前轮次的指定提议者 {self.node.tendermint_consensus.proposer}")
+            return None
+        
+        # 转换区块
+        proposed_block = Block.from_dict(block_dict)
+        
+        # 验证区块
+        if not self.blockchain.is_valid_block(proposed_block):
+            print(f"提议消息: 区块 {proposed_block.index} 无效")
+            return None
+        
+        # 设置提议的区块
+        self.node.tendermint_consensus.proposed_block = proposed_block
+        self.node.tendermint_consensus.current_step = self.node.tendermint_consensus.STATE_PREPARE
+        self.node.tendermint_consensus.last_activity_time = time.time()
+        
+        print(f"收到有效的区块提议: {proposed_block.index} 来自 {proposer}")
+        
+        # 生成准备投票
+        self.broadcast_tendermint_prepare_vote(proposed_block.hash)
+        
+        return None
+
+    def handle_tendermint_prepare(self, message):
+        """
+        处理Tendermint准备投票消息
+        
+        Args:
+            message: 准备投票消息
+            
+        Returns:
+            str: 响应消息的JSON字符串
+        """
+        if not hasattr(self.node, 'tendermint_consensus'):
+            print("节点未启用Tendermint共识")
+            return None
+        
+        validator = message.sender
+        block_hash = message.data.get('block_hash')
+        signature = message.data.get('signature')
+        
+        # 添加准备投票
+        result = self.node.tendermint_consensus.prepare_vote(validator, block_hash, signature)
+        
+        if result and self.node.tendermint_consensus.current_step == self.node.tendermint_consensus.STATE_COMMIT:
+            # 如果进入提交阶段，广播提交投票
+            self.broadcast_tendermint_commit_vote(block_hash)
+        
+        return None
+
+    def handle_tendermint_commit(self, message):
+        """
+        处理Tendermint提交投票消息
+        
+        Args:
+            message: 提交投票消息
+            
+        Returns:
+            str: 响应消息的JSON字符串
+        """
+        if not hasattr(self.node, 'tendermint_consensus'):
+            print("节点未启用Tendermint共识")
+            return None
+        
+        validator = message.sender
+        block_hash = message.data.get('block_hash')
+        signature = message.data.get('signature')
+        
+        # 添加提交投票
+        self.node.tendermint_consensus.commit_vote(validator, block_hash, signature)
+        
+        return None
+
+    def handle_tendermint_sync(self, message):
+        """
+        处理Tendermint同步消息
+        
+        Args:
+            message: 同步消息
+            
+        Returns:
+            str: 响应消息的JSON字符串
+        """
+        if not hasattr(self.node, 'tendermint_consensus'):
+            print("节点未启用Tendermint共识")
+            return None
+        
+        height = message.data.get('height')
+        round = message.data.get('round')
+        step = message.data.get('step')
+        
+        # 如果对方的高度更高，请求区块链同步
+        if height > len(self.blockchain.chain):
+            self.synchronize_blockchain()
+            return None
+        
+        # 如果在同一高度但轮次或步骤不同，可能需要同步状态
+        if height == self.node.tendermint_consensus.current_height:
+            if round > self.node.tendermint_consensus.current_round:
+                # 对方轮次更高，开始新轮次
+                self.node.tendermint_consensus.current_round = round
+                self.node.tendermint_consensus.current_step = step
+                self.node.tendermint_consensus.last_activity_time = time.time()
+                
+                print(f"同步到更高轮次: {round}, 步骤: {step}")
+            elif round == self.node.tendermint_consensus.current_round:
+                # 同一轮次，但步骤可能不同
+                step_order = {
+                    self.node.tendermint_consensus.STATE_PRE_PREPARE: 0,
+                    self.node.tendermint_consensus.STATE_PREPARE: 1,
+                    self.node.tendermint_consensus.STATE_COMMIT: 2,
+                    self.node.tendermint_consensus.STATE_FINALIZED: 3
+                }
+                
+                if step_order.get(step, -1) > step_order.get(self.node.tendermint_consensus.current_step, -1):
+                    # 对方步骤更高，更新步骤
+                    self.node.tendermint_consensus.current_step = step
+                    self.node.tendermint_consensus.last_activity_time = time.time()
+                    
+                    print(f"同步到更高步骤: {step}")
+        
+        return None
+
+    def broadcast_tendermint_propose(self, block):
+        """
+        广播Tendermint提议消息
+        
+        Args:
+            block: 提议的区块
+        """
+        message = Message(
+            Message.TYPE_TENDERMINT_PROPOSE,
+            {
+                'block': block.to_dict(),
+                'height': self.node.tendermint_consensus.current_height,
+                'round': self.node.tendermint_consensus.current_round
+            },
+            self.node_id
+        )
+        
+        self.broadcast_message(message)
+        print(f"广播区块提议: {block.index}")
+
+    def broadcast_tendermint_prepare_vote(self, block_hash):
+        """
+        广播Tendermint准备投票
+        
+        Args:
+            block_hash: 区块哈希
+        """
+        # 生成投票签名（在实际系统中应使用私钥签名）
+        signature = f"PREPARE_{self.node_id}_{int(time.time())}"
+        
+        message = Message(
+            Message.TYPE_TENDERMINT_PREPARE,
+            {
+                'block_hash': block_hash,
+                'signature': signature,
+                'height': self.node.tendermint_consensus.current_height,
+                'round': self.node.tendermint_consensus.current_round
+            },
+            self.node_id
+        )
+        
+        self.broadcast_message(message)
+        print(f"广播准备投票: {block_hash[:8]}")
+        
+        # 将自己的投票也添加到本地
+        self.node.tendermint_consensus.prepare_vote(self.node_id, block_hash, signature)
+
+    def broadcast_tendermint_commit_vote(self, block_hash):
+        """
+        广播Tendermint提交投票
+        
+        Args:
+            block_hash: 区块哈希
+        """
+        # 生成投票签名（在实际系统中应使用私钥签名）
+        signature = f"COMMIT_{self.node_id}_{int(time.time())}"
+        
+        message = Message(
+            Message.TYPE_TENDERMINT_COMMIT,
+            {
+                'block_hash': block_hash,
+                'signature': signature,
+                'height': self.node.tendermint_consensus.current_height,
+                'round': self.node.tendermint_consensus.current_round
+            },
+            self.node_id
+        )
+        
+        self.broadcast_message(message)
+        print(f"广播提交投票: {block_hash[:8]}")
+        
+        # 将自己的投票也添加到本地
+        self.node.tendermint_consensus.commit_vote(self.node_id, block_hash, signature)
+
+    def broadcast_tendermint_sync(self):
+        """广播Tendermint同步消息"""
+        message = Message(
+            Message.TYPE_TENDERMINT_SYNC,
+            {
+                'height': self.node.tendermint_consensus.current_height,
+                'round': self.node.tendermint_consensus.current_round,
+                'step': self.node.tendermint_consensus.current_step
+            },
+            self.node_id
+        )
+        
+        self.broadcast_message(message)
+        print(f"广播同步消息: 高度={self.node.tendermint_consensus.current_height}, 轮次={self.node.tendermint_consensus.current_round}, 步骤={self.node.tendermint_consensus.current_step}")

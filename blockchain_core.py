@@ -110,6 +110,12 @@ class Block:
         self.nonce = 0
         self.hash = self.calculate_hash()
         
+        # Tendermint相关字段
+        self.proposer = validator  # 提议者
+        self.prepare_votes = {}    # 准备阶段投票
+        self.commit_votes = {}     # 提交阶段投票
+        self.round = 0             # 轮次
+        
     def calculate_hash(self) -> str:
         """计算区块的哈希值"""
         # 将交易列表转换为可哈希的格式
@@ -133,7 +139,11 @@ class Block:
             'previous_hash': self.previous_hash,
             'validator': self.validator,
             'nonce': self.nonce,
-            'hash': self.hash
+            'hash': self.hash,
+            'proposer': self.proposer,
+            'prepare_votes': self.prepare_votes,
+            'commit_votes': self.commit_votes,
+            'round': self.round
         }
     
     @classmethod
@@ -149,6 +159,13 @@ class Block:
         )
         block.nonce = block_dict['nonce']
         block.hash = block_dict['hash']
+        
+        # 设置Tendermint字段
+        block.proposer = block_dict.get('proposer', block_dict['validator'])
+        block.prepare_votes = block_dict.get('prepare_votes', {})
+        block.commit_votes = block_dict.get('commit_votes', {})
+        block.round = block_dict.get('round', 0)
+        
         return block
 
 

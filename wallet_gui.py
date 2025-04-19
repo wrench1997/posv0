@@ -8,7 +8,7 @@ import os
 from typing import Dict, List, Any, Optional
 
 from wallet import WalletManager, Wallet
-from main import Node
+from Node import Node
 from mining_rewards import RewardCalculator, RewardDistributor
 from pos_consensus import POSConsensus
 from bill_hash import BillManager
@@ -27,7 +27,7 @@ class WalletGUI:
         self.root.title("区块链钱包")
         
         # 设置初始窗口大小，但允许调整
-        self.root.geometry("1280x720")
+        self.root.geometry("1280x1024")
         self.root.minsize(800, 600)  # 设置最小窗口大小
         self.root.resizable(True, True)
         
@@ -279,6 +279,18 @@ class WalletGUI:
         self.status_var = tk.StringVar(value="就绪")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        
+
+        tendermint_frame = ttk.LabelFrame(node_frame, text="Tendermint共识", padding=5)
+        tendermint_frame.pack(fill=tk.X, pady=5)
+
+        self.tendermint_status_var = tk.StringVar(value="未启用")
+        ttk.Label(tendermint_frame, textvariable=self.tendermint_status_var).pack(side=tk.LEFT, padx=5)
+
+        self.tendermint_btn = ttk.Button(tendermint_frame, text="启用Tendermint", command=self.toggle_tendermint)
+        self.tendermint_btn.pack(side=tk.RIGHT, padx=5)
+
+                
     
     def update_wallet_list(self):
         """更新钱包列表"""
@@ -308,21 +320,19 @@ class WalletGUI:
         self.select_wallet(wallet_name)
     
     def select_wallet(self, name):
-        """
-        选择钱包
-        
-        Args:
-            name: 钱包名称
-        """
         wallet = self.wallet_manager.get_wallet(name)
         
         if wallet:
             self.current_wallet = wallet
             self.current_wallet_var.set(f"当前钱包: {wallet.name}\n地址: {wallet.address}")
             
-            # 如果节点已启动，更新节点ID
+            # 如果节点已启动，更新节点ID和余额
             if self.node:
                 self.node.node_id = wallet.address
+                
+                # 获取并设置正确的余额
+                balance = wallet.get_balance(self.node)
+                self.node.balance = balance + wallet.staked_amount  # 总余额应该是可用余额加上已质押金额
                 
                 # 同步质押状态
                 if wallet.staked_amount > 0:
@@ -332,10 +342,6 @@ class WalletGUI:
                 self.update_balance()
                 self.update_transaction_history()
                 self.update_stake_info()
-            
-            self.status_var.set(f"已选择钱包: {wallet.name}")
-        else:
-            messagebox.showerror("错误", f"钱包 {name} 不存在")
     
     def create_wallet(self):
         """创建新钱包"""
@@ -456,12 +462,14 @@ class WalletGUI:
                 self.node = Node(node_id, host, port)
                 self.node.start()
 
+                
                 # 如果有当前钱包，设置节点的余额为钱包余额
                 if self.current_wallet:
-                    # 同步质押状态
-                    if self.current_wallet.staked_amount > 0:
-                        self.node.staked_amount = self.current_wallet.staked_amount
-                        self.node.pos_consensus.add_stake(self.current_wallet.address, self.current_wallet.staked_amount)
+                    # 计算钱包的实际余额
+                    actual_balance = self.current_wallet.get_balance(self.node) + self.current_wallet.staked_amount
+                    # 设置节点的余额
+                    self.node.balance = actual_balance
+                    print(f"设置节点余额为钱包实际余额: {actual_balance}")
                 
                 self.node_status_var.set(f"节点已启动: {node_id}\n地址: {host}:{port}")
                 self.status_var.set(f"本地节点 {node_id} 已启动")
@@ -509,7 +517,7 @@ class WalletGUI:
         ttk.Label(manual_frame, text="种子节点端口:").pack(anchor=tk.W)
         port_entry = ttk.Entry(manual_frame)
         port_entry.pack(fill=tk.X, pady=2)
-        port_entry.insert(0, "5000")
+        port_entry.insert(0, "5005")
         
         # 自动发现框架
         auto_frame = ttk.LabelFrame(connect_dialog, text="自动发现", padding=10)
@@ -517,10 +525,10 @@ class WalletGUI:
         
         # 预配置节点列表
         predefined_nodes = [
-            ("主网节点1", "node1.example.com", 5000),
-            ("主网节点2", "node2.example.com", 5000),
-            ("测试网节点", "testnet.example.com", 5000),
-            ("本地节点", "127.0.0.1", 5000)
+            ("主网节点1", "node1.example.com", 5005),
+            ("主网节点2", "node2.example.com", 5005),
+            ("测试网节点", "testnet.example.com", 5005),
+            ("本地节点", "127.0.0.1", 5005)
         ]
         
         node_var = tk.StringVar()
@@ -1172,6 +1180,9 @@ class WalletGUI:
         # 按时间戳排序
         history.sort(key=lambda x: x['timestamp'], reverse=True)
         
+        # 只显示最新的20条记录
+        history = history[:20]
+        
         # 添加交易记录
         for tx in history:
             tx_type = "发送" if tx['sender'] == self.current_wallet.address else "接收"
@@ -1191,7 +1202,7 @@ class WalletGUI:
                 amount,
                 tx_time
             ))
-    
+        
     def create_transaction(self):
         """创建交易"""
         if not self.current_wallet:
@@ -1525,6 +1536,63 @@ class WalletGUI:
         self.root.destroy()
 
 
+
+    # 在 WalletGUI 类中添加以下方法
+
+    def toggle_tendermint(self):
+        """切换Tendermint共识状态"""
+        if not self.node:
+            messagebox.showerror("错误", "请先启动本地节点")
+            return
+        
+        if self.node.use_tendermint:
+            # 禁用Tendermint
+            self.node.disable_tendermint()
+            self.tendermint_status_var.set("未启用")
+            self.tendermint_btn.config(text="启用Tendermint")
+            messagebox.showinfo("成功", "已禁用Tendermint共识")
+        else:
+            # 启用Tendermint
+            self.node.enable_tendermint()
+            self.tendermint_status_var.set("已启用")
+            self.tendermint_btn.config(text="禁用Tendermint")
+            messagebox.showinfo("成功", "已启用Tendermint共识")
+
+    # 修改 update_blockchain_info 方法，添加Tendermint状态
+
+    def update_blockchain_info(self):
+        """更新区块链信息"""
+        if not self.node:
+            return
+        
+        info = self.node.get_blockchain_info()
+        
+        # 获取最新区块信息
+        latest_block = None
+        if info['chain_length'] > 0:
+            latest_block = self.node.blockchain.get_latest_block()
+            latest_block_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(latest_block.timestamp))
+        else:
+            latest_block_time = "N/A"
+        
+        # 添加Tendermint状态
+        tendermint_status = "未启用"
+        if self.node.use_tendermint and self.node.tendermint_consensus:
+            tendermint_status = f"已启用 (高度: {self.node.tendermint_consensus.current_height}, 轮次: {self.node.tendermint_consensus.current_round}, 阶段: {self.node.tendermint_consensus.current_step})"
+            self.tendermint_status_var.set("已启用")
+            self.tendermint_btn.config(text="禁用Tendermint")
+        else:
+            self.tendermint_status_var.set("未启用")
+            self.tendermint_btn.config(text="启用Tendermint")
+        
+        self.blockchain_info_var.set(
+            f"链长度: {info['chain_length']}\n"
+            f"待处理交易: {info['pending_transactions']}\n"
+            f"链是否有效: {info['is_valid']}\n"
+            f"最新区块时间: {latest_block_time}\n"
+            f"Tendermint: {tendermint_status}"
+        )
+        
 if __name__ == "__main__":
     root = tk.Tk()
     app = WalletGUI(root)
